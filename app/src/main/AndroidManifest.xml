@@ -25,6 +25,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".runtime.RuntimeHostActivity"
+            android:exported="false"
+            android:process=":runtime" />
+
         <service
             android:name=".overlay.GuideOverlayService"
             android:exported="false"
