@@ -17,6 +17,7 @@ import android.widget.Toast;
 import dev.jaowzin.carromloader.engine.CarromGameEngine;
 import dev.jaowzin.carromloader.engine.GameEngine;
 import dev.jaowzin.carromloader.overlay.GuideOverlayService;
+import dev.jaowzin.carromloader.runtime.ApplicationAttachProbeService;
 import dev.jaowzin.carromloader.runtime.ControlledRuntimeService;
 import dev.jaowzin.carromloader.runtime.RuntimeHostActivity;
 import dev.jaowzin.carromloader.runtime.RuntimeReportStore;
@@ -65,6 +66,7 @@ public final class MainActivity extends Activity {
         root.addView(action("3. Open Carrom Pool", v -> launchCarrom()));
         root.addView(action("4. Prepare controlled runtime", v -> prepareControlledRuntime()));
         root.addView(action("5. Open runtime host shell", v -> openRuntimeHost()));
+        root.addView(action("6. Attach CarromApplication (no onCreate)", v -> attachTargetApplication()));
         root.addView(action("Refresh runtime report", v -> refreshRuntimeReport()));
         root.addView(action("Stop overlay", v -> stopService(new Intent(this, GuideOverlayService.class))));
 
@@ -88,7 +90,7 @@ public final class MainActivity extends Activity {
         ));
 
         TextView info = new TextView(this);
-        info.setText("Phase 3 keeps lifecycle ownership in Loader but creates a host Activity inside :runtime using Carrom's package Context, resources, assets, class loader and Activity theme context. It intentionally does not instantiate CarromApplication or CarromActivity yet.");
+        info.setText("Phase 4 keeps the game lifecycle stopped but instantiates CarromApplication in a separate :app_probe process and performs Application.attach() against the target facade. CarromApplication.onCreate() is intentionally not called. Static initialization/constructor code may execute in the isolated probe process.");
         info.setTextSize(13f);
         info.setTextColor(0xFF555555);
         info.setPadding(0, dp(18), 0, 0);
@@ -173,6 +175,20 @@ public final class MainActivity extends Activity {
             return;
         }
         startActivity(new Intent(this, RuntimeHostActivity.class));
+    }
+
+    private void attachTargetApplication() {
+        if (!engine.isAvailable(this)) {
+            toast("Carrom Pool is not installed");
+            return;
+        }
+        Intent intent = new Intent(this, ApplicationAttachProbeService.class)
+                .setAction(ApplicationAttachProbeService.ACTION_ATTACH)
+                .putExtra(ApplicationAttachProbeService.EXTRA_PACKAGE, engine.getTargetPackage());
+        startService(intent);
+        runtimeStatus.setText("Attaching CarromApplication in isolated :app_probe process…");
+        handler.postDelayed(this::refreshRuntimeReport, 1500L);
+        toast("Application attach probe started");
     }
 
     private void refreshStatus() {
