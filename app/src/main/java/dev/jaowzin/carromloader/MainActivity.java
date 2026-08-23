@@ -90,7 +90,7 @@ public final class MainActivity extends Activity {
         ));
 
         TextView info = new TextView(this);
-        info.setText("Phase 4 keeps the game lifecycle stopped but instantiates CarromApplication in a separate :app_probe process and performs Application.attach() against the target facade. CarromApplication.onCreate() is intentionally not called. Static initialization/constructor code may execute in the isolated probe process.");
+        info.setText("Phase 4.1 writes persistent checkpoints from :app_probe before and after every risky Application attach step. If the isolated process dies during target class initialization, constructor or attach(), the last completed checkpoint remains visible here.");
         info.setTextSize(13f);
         info.setTextColor(0xFF555555);
         info.setPadding(0, dp(18), 0, 0);
@@ -186,8 +186,12 @@ public final class MainActivity extends Activity {
                 .setAction(ApplicationAttachProbeService.ACTION_ATTACH)
                 .putExtra(ApplicationAttachProbeService.EXTRA_PACKAGE, engine.getTargetPackage());
         startService(intent);
-        runtimeStatus.setText("Attaching CarromApplication in isolated :app_probe process…");
+        runtimeStatus.setText("Starting :app_probe and waiting for first checkpoint…");
+        handler.postDelayed(this::refreshRuntimeReport, 250L);
+        handler.postDelayed(this::refreshRuntimeReport, 700L);
         handler.postDelayed(this::refreshRuntimeReport, 1500L);
+        handler.postDelayed(this::refreshRuntimeReport, 3000L);
+        handler.postDelayed(this::refreshRuntimeReport, 5000L);
         toast("Application attach probe started");
     }
 
