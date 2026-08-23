@@ -58,8 +58,10 @@ public final class ControlledRuntimeService extends Service {
             report.append("probeSuperclass=").append(parent == null ? "null" : parent.getName()).append('\n');
             report.append("classResolved=YES\n");
             report.append("stage=DEX_READY\n");
+
+            report.append(RuntimeEnvironmentProbe.probe(this, target, PROBE_CLASS));
+            report.append("stage=CONTEXT_READY\n");
         } catch (Throwable error) {
-            report.append("classResolved=NO\n");
             report.append("stage=FAILED\n");
             report.append("error=").append(error.getClass().getName()).append(": ")
                     .append(error.getMessage()).append('\n');
