@@ -22,6 +22,7 @@ import dev.jaowzin.carromloader.engine.CarromGameEngine;
 import dev.jaowzin.carromloader.engine.GameEngine;
 import dev.jaowzin.carromloader.overlay.GuideOverlayService;
 import dev.jaowzin.carromloader.runtime.ApplicationAttachProbeService;
+import dev.jaowzin.carromloader.runtime.ApplicationOnCreateProbeService;
 import dev.jaowzin.carromloader.runtime.ControlledRuntimeService;
 import dev.jaowzin.carromloader.runtime.RuntimeHostActivity;
 import dev.jaowzin.carromloader.runtime.RuntimeReportStore;
@@ -79,6 +80,7 @@ public final class MainActivity extends Activity {
         root.addView(action("4. Prepare controlled runtime", v -> prepareControlledRuntime()));
         root.addView(action("5. Open runtime host shell", v -> openRuntimeHost()));
         root.addView(action("6. Attach CarromApplication (no onCreate)", v -> attachTargetApplication()));
+        root.addView(action("7. Run CarromApplication.onCreate", v -> runTargetApplicationOnCreate()));
         root.addView(action("Refresh runtime report", v -> {
             refreshRuntimeReport();
             scrollToReport();
@@ -107,7 +109,7 @@ public final class MainActivity extends Activity {
         ));
 
         TextView info = new TextView(this);
-        info.setText("The whole screen is scrollable in this build. If :app_probe reaches any checkpoint, it will remain visible in the report box. Use Copy runtime report to send the exact text.");
+        info.setText("Phase 5 runs only CarromApplication.onCreate() inside a separate :oncreate_probe process. Checkpoints are persisted before context creation, Application attach and onCreate. CarromActivity is still not created or launched by the controlled runtime.");
         info.setTextSize(13f);
         info.setTextColor(0xFF555555);
         info.setPadding(0, dp(18), 0, 0);
@@ -206,14 +208,33 @@ public final class MainActivity extends Activity {
         startService(intent);
         runtimeStatus.setText("Starting :app_probe and waiting for first checkpoint…");
         scrollToReport();
-        long[] delays = {250L, 700L, 1500L, 3000L, 5000L};
+        scheduleReportRefreshes();
+        toast("Application attach probe started");
+    }
+
+    private void runTargetApplicationOnCreate() {
+        if (!engine.isAvailable(this)) {
+            toast("Carrom Pool is not installed");
+            return;
+        }
+        Intent intent = new Intent(this, ApplicationOnCreateProbeService.class)
+                .setAction(ApplicationOnCreateProbeService.ACTION_RUN)
+                .putExtra(ApplicationOnCreateProbeService.EXTRA_PACKAGE, engine.getTargetPackage());
+        startService(intent);
+        runtimeStatus.setText("Running CarromApplication.onCreate in isolated :oncreate_probe…");
+        scrollToReport();
+        scheduleReportRefreshes();
+        toast("Application onCreate probe started");
+    }
+
+    private void scheduleReportRefreshes() {
+        long[] delays = {150L, 350L, 700L, 1500L, 3000L, 5000L, 8000L};
         for (long delay : delays) {
             handler.postDelayed(() -> {
                 refreshRuntimeReport();
                 scrollToReport();
             }, delay);
         }
-        toast("Application attach probe started");
     }
 
     private void copyRuntimeReport() {
