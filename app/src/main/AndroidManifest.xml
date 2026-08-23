@@ -3,6 +3,7 @@
 
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <queries>
         <package android:name="com.miniclip.carrom" />
@@ -26,6 +27,11 @@
 
         <service
             android:name=".overlay.GuideOverlayService"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-controlled trajectory guide overlay while Carrom Pool is in the foreground" />
+        </service>
     </application>
 </manifest>
