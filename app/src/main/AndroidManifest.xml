@@ -53,5 +53,10 @@
             android:name=".runtime.ApplicationOnCreateProbeService"
             android:exported="false"
             android:process=":oncreate_probe" />
+
+        <service
+            android:name=".runtime.ActivityAttachProbeService"
+            android:exported="false"
+            android:process=":activity_probe" />
     </application>
 </manifest>
