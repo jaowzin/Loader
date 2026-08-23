@@ -33,5 +33,10 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User-controlled trajectory guide overlay while Carrom Pool is in the foreground" />
         </service>
+
+        <service
+            android:name=".runtime.ControlledRuntimeService"
+            android:exported="false"
+            android:process=":runtime" />
     </application>
 </manifest>
