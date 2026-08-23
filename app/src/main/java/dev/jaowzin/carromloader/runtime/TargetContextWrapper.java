@@ -1,5 +1,6 @@
 package dev.jaowzin.carromloader.runtime;
 
+import android.app.Application;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.pm.ApplicationInfo;
@@ -14,11 +15,27 @@ import android.content.res.Resources;
  */
 public final class TargetContextWrapper extends ContextWrapper {
     private final Context target;
+    private volatile Application targetApplication;
 
     public TargetContextWrapper(Context host, Context target) {
         super(host);
         if (target == null) throw new IllegalArgumentException("target context == null");
         this.target = target;
+    }
+
+    /**
+     * Called immediately after Instrumentation.newApplication(). From that point on,
+     * getApplicationContext() behaves like the target process instead of leaking the
+     * Loader Application context into target libraries.
+     */
+    public void setTargetApplication(Application application) {
+        this.targetApplication = application;
+    }
+
+    @Override
+    public Context getApplicationContext() {
+        Application application = targetApplication;
+        return application != null ? application : this;
     }
 
     @Override
