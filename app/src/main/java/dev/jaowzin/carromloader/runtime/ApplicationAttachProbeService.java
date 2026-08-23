@@ -54,7 +54,7 @@ public final class ApplicationAttachProbeService extends Service {
             report.append("targetCodeExecuted=CLASS_INIT_CONSTRUCTOR_ATTACH_ONLY\n");
 
             Instrumentation instrumentation = new Instrumentation();
-            Application application = Instrumentation.newApplication(loader, appClassName, facade);
+            Application application = instrumentation.newApplication(loader, appClassName, facade);
 
             report.append("applicationInstance=").append(application.getClass().getName()).append('\n');
             report.append("applicationBaseContext=")
