@@ -22,6 +22,7 @@ import dev.jaowzin.carromloader.engine.CarromGameEngine;
 import dev.jaowzin.carromloader.engine.GameEngine;
 import dev.jaowzin.carromloader.overlay.GuideOverlayService;
 import dev.jaowzin.carromloader.runtime.ActivityAttachProbeService;
+import dev.jaowzin.carromloader.runtime.ActivityOnCreateProbeService;
 import dev.jaowzin.carromloader.runtime.ApplicationAttachProbeService;
 import dev.jaowzin.carromloader.runtime.ApplicationOnCreateProbeService;
 import dev.jaowzin.carromloader.runtime.ControlledRuntimeService;
@@ -83,6 +84,7 @@ public final class MainActivity extends Activity {
         root.addView(action("6. Attach CarromApplication (no onCreate)", v -> attachTargetApplication()));
         root.addView(action("7. Run CarromApplication.onCreate", v -> runTargetApplicationOnCreate()));
         root.addView(action("8. Attach CarromActivity (no onCreate)", v -> runTargetActivityAttach()));
+        root.addView(action("9. Run CarromActivity.onCreate", v -> runTargetActivityOnCreate()));
         root.addView(action("Refresh runtime report", v -> {
             refreshRuntimeReport();
             scrollToReport();
@@ -111,7 +113,7 @@ public final class MainActivity extends Activity {
         ));
 
         TextView info = new TextView(this);
-        info.setText("Phase 6 rebuilds the already-passing CarromApplication lifecycle inside :activity_probe, then creates and attaches CarromActivity with its ActivityInfo, theme, Intent, token and Application. CarromActivity.onCreate() is intentionally not called yet.");
+        info.setText("Phase 7 rebuilds the passing Application + Activity attach path in :activity_oncreate_probe and then calls only CarromActivity.onCreate(). Checkpoints are written immediately before and after the Activity lifecycle call so native/process failure remains diagnosable.");
         info.setTextSize(13f);
         info.setTextColor(0xFF555555);
         info.setPadding(0, dp(18), 0, 0);
@@ -242,6 +244,21 @@ public final class MainActivity extends Activity {
         scrollToReport();
         scheduleReportRefreshes();
         toast("Activity attach probe started");
+    }
+
+    private void runTargetActivityOnCreate() {
+        if (!engine.isAvailable(this)) {
+            toast("Carrom Pool is not installed");
+            return;
+        }
+        Intent intent = new Intent(this, ActivityOnCreateProbeService.class)
+                .setAction(ActivityOnCreateProbeService.ACTION_RUN)
+                .putExtra(ActivityOnCreateProbeService.EXTRA_PACKAGE, engine.getTargetPackage());
+        startService(intent);
+        runtimeStatus.setText("Running CarromActivity.onCreate in isolated :activity_oncreate_probe…");
+        scrollToReport();
+        scheduleReportRefreshes();
+        toast("Activity onCreate probe started");
     }
 
     private void scheduleReportRefreshes() {
