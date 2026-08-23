@@ -1,4 +1,4 @@
-run_id=32664888777
-run_number=24
-source_sha=40f1f2b74fd79713505b298c8e3367fea89524ab
+run_id=32665832633
+run_number=26
+source_sha=ce3c38c8df57fe01ae58d0529414a39774eecf9a
 build_outcome=success
