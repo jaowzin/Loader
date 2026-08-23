@@ -1,6 +1,9 @@
 package dev.jaowzin.carromloader;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.graphics.Typeface;
 import android.net.Uri;
@@ -11,6 +14,7 @@ import android.provider.Settings;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -27,15 +31,23 @@ public final class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView status;
     private TextView runtimeStatus;
+    private ScrollView scrollView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        scrollView = new ScrollView(this);
+        scrollView.setFillViewport(true);
+
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(24), dp(32), dp(24), dp(24));
+        root.setPadding(dp(24), dp(32), dp(24), dp(32));
         root.setBackgroundColor(0xFFF4F4F4);
+        scrollView.addView(root, new ScrollView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
 
         TextView title = new TextView(this);
         title.setText("Carrom Loader");
@@ -45,7 +57,7 @@ public final class MainActivity extends Activity {
         root.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Clean-room CTF companion • controlled runtime phase");
+        subtitle.setText("Clean-room CTF companion • controlled runtime diagnostics");
         subtitle.setTextSize(14f);
         subtitle.setTextColor(0xFF555555);
         subtitle.setPadding(0, dp(4), 0, dp(20));
@@ -67,7 +79,11 @@ public final class MainActivity extends Activity {
         root.addView(action("4. Prepare controlled runtime", v -> prepareControlledRuntime()));
         root.addView(action("5. Open runtime host shell", v -> openRuntimeHost()));
         root.addView(action("6. Attach CarromApplication (no onCreate)", v -> attachTargetApplication()));
-        root.addView(action("Refresh runtime report", v -> refreshRuntimeReport()));
+        root.addView(action("Refresh runtime report", v -> {
+            refreshRuntimeReport();
+            scrollToReport();
+        }));
+        root.addView(action("Copy runtime report", v -> copyRuntimeReport()));
         root.addView(action("Stop overlay", v -> stopService(new Intent(this, GuideOverlayService.class))));
 
         TextView runtimeTitle = new TextView(this);
@@ -84,19 +100,20 @@ public final class MainActivity extends Activity {
         runtimeStatus.setPadding(dp(10), dp(10), dp(10), dp(10));
         runtimeStatus.setBackgroundColor(0xFFFFFFFF);
         runtimeStatus.setTextIsSelectable(true);
+        runtimeStatus.setMinHeight(dp(180));
         root.addView(runtimeStatus, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
         ));
 
         TextView info = new TextView(this);
-        info.setText("Phase 4.1 writes persistent checkpoints from :app_probe before and after every risky Application attach step. If the isolated process dies during target class initialization, constructor or attach(), the last completed checkpoint remains visible here.");
+        info.setText("The whole screen is scrollable in this build. If :app_probe reaches any checkpoint, it will remain visible in the report box. Use Copy runtime report to send the exact text.");
         info.setTextSize(13f);
         info.setTextColor(0xFF555555);
         info.setPadding(0, dp(18), 0, 0);
         root.addView(info);
 
-        setContentView(root);
+        setContentView(scrollView);
         refreshStatus();
         refreshRuntimeReport();
     }
@@ -165,7 +182,8 @@ public final class MainActivity extends Activity {
                 .putExtra(ControlledRuntimeService.EXTRA_PACKAGE, engine.getTargetPackage());
         startService(intent);
         runtimeStatus.setText("Preparing isolated runtime…");
-        handler.postDelayed(this::refreshRuntimeReport, 1200L);
+        scrollToReport();
+        handler.postDelayed(() -> { refreshRuntimeReport(); scrollToReport(); }, 1200L);
         toast("Controlled runtime probe started");
     }
 
@@ -187,12 +205,29 @@ public final class MainActivity extends Activity {
                 .putExtra(ApplicationAttachProbeService.EXTRA_PACKAGE, engine.getTargetPackage());
         startService(intent);
         runtimeStatus.setText("Starting :app_probe and waiting for first checkpoint…");
-        handler.postDelayed(this::refreshRuntimeReport, 250L);
-        handler.postDelayed(this::refreshRuntimeReport, 700L);
-        handler.postDelayed(this::refreshRuntimeReport, 1500L);
-        handler.postDelayed(this::refreshRuntimeReport, 3000L);
-        handler.postDelayed(this::refreshRuntimeReport, 5000L);
+        scrollToReport();
+        long[] delays = {250L, 700L, 1500L, 3000L, 5000L};
+        for (long delay : delays) {
+            handler.postDelayed(() -> {
+                refreshRuntimeReport();
+                scrollToReport();
+            }, delay);
+        }
         toast("Application attach probe started");
+    }
+
+    private void copyRuntimeReport() {
+        String report = RuntimeReportStore.read(this);
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(ClipData.newPlainText("Carrom Loader runtime report", report));
+            toast("Runtime report copied");
+        }
+    }
+
+    private void scrollToReport() {
+        if (scrollView == null || runtimeStatus == null) return;
+        scrollView.post(() -> scrollView.smoothScrollTo(0, runtimeStatus.getTop()));
     }
 
     private void refreshStatus() {
