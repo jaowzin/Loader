@@ -18,17 +18,17 @@ Starting a Gradle Daemon (subsequent builds will be faster)
 > Task :app:compileDebugShaders NO-SOURCE
 > Task :app:generateDebugAssets UP-TO-DATE
 > Task :app:mergeDebugAssets
-> Task :app:processDebugManifestForPackage
 > Task :app:compressDebugAssets
 > Task :app:processDebugJavaRes NO-SOURCE
-> Task :app:checkDebugDuplicateClasses
-> Task :app:desugarDebugFileDependencies
-> Task :app:mergeExtDexDebug
-> Task :app:mergeLibDexDebug
+> Task :app:processDebugManifestForPackage
 > Task :app:mergeDebugJavaResource
+> Task :app:desugarDebugFileDependencies
+> Task :app:checkDebugDuplicateClasses
 > Task :app:mergeDebugJniLibFolders
 > Task :app:mergeDebugNativeLibs NO-SOURCE
 > Task :app:stripDebugDebugSymbols NO-SOURCE
+> Task :app:mergeExtDexDebug
+> Task :app:mergeLibDexDebug
 > Task :app:processDebugResources
 > Task :app:validateSigningDebug
 
@@ -43,7 +43,7 @@ Note: Recompile with -Xlint:deprecation for details.
 > Task :app:packageDebug
 > Task :app:createDebugApkListingFileRedirect
 > Task :app:assembleDebug
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/apk_build-1787524970461.json
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/apk_build-1787525367039.json
 
-BUILD SUCCESSFUL in 17s
+BUILD SUCCESSFUL in 14s
 31 actionable tasks: 31 executed
