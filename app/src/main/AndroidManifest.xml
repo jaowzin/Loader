@@ -43,5 +43,10 @@
             android:name=".runtime.ControlledRuntimeService"
             android:exported="false"
             android:process=":runtime" />
+
+        <service
+            android:name=".runtime.ApplicationAttachProbeService"
+            android:exported="false"
+            android:process=":app_probe" />
     </application>
 </manifest>
