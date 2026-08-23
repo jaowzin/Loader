@@ -10,6 +10,8 @@ import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.res.Resources;
+import android.graphics.drawable.Drawable;
 import android.os.Binder;
 import android.os.Build;
 import android.os.IBinder;
@@ -27,6 +29,7 @@ public final class ActivityOnCreateProbeService extends Service {
 
     private static final String DEFAULT_TARGET = "com.miniclip.carrom";
     private static final String TARGET_ACTIVITY = "com.miniclip.carrom.CarromActivity";
+    private static final int KNOWN_FAILING_RESOURCE = 0x7f080093;
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -47,18 +50,19 @@ public final class ActivityOnCreateProbeService extends Service {
         report.append("actualProcess=").append(processName()).append('\n');
         report.append("thread=").append(Thread.currentThread().getName()).append('\n');
         report.append("activityOnCreateCalled=NO\n");
+        report.append("knownResourceProbe=0x").append(Integer.toHexString(KNOWN_FAILING_RESOURCE)).append('\n');
         report.append("checkpoint=SERVICE_STARTED\n");
         report.append("stage=STARTED\n");
         checkpoint(report);
 
         Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
-            String crash = report.toString()
-                    + "checkpoint=UNCAUGHT_EXCEPTION\n"
-                    + "crashThread=" + thread.getName() + "\n"
-                    + "error=" + error.getClass().getName() + ": " + error.getMessage() + "\n"
-                    + "stage=JAVA_CRASH\n"
-                    + "=== END ACTIVITY ONCREATE REPORT ===\n";
-            safeWrite(crash);
+            StringBuilder crash = new StringBuilder(report);
+            crash.append("checkpoint=UNCAUGHT_EXCEPTION\n");
+            crash.append("crashThread=").append(thread.getName()).append('\n');
+            appendThrowable(crash, "uncaught", error, 24);
+            crash.append("stage=JAVA_CRASH\n");
+            crash.append("=== END ACTIVITY ONCREATE REPORT ===\n");
+            safeWrite(crash.toString());
         });
 
         try {
@@ -74,8 +78,14 @@ public final class ActivityOnCreateProbeService extends Service {
             report.append("targetContext=").append(targetContext.getClass().getName()).append('\n');
             report.append("facadePackage=").append(facade.getPackageName()).append('\n');
             report.append("targetLoader=").append(loader.getClass().getName()).append('\n');
+            report.append("targetCodePath=").append(facade.getPackageCodePath()).append('\n');
+            report.append("targetResourcePath=").append(facade.getPackageResourcePath()).append('\n');
             report.append("checkpoint=PACKAGE_CONTEXT_READY\n");
             report.append("stage=CONTEXT_READY\n");
+            checkpoint(report);
+
+            probeResource(report, "targetContext", targetContext, KNOWN_FAILING_RESOURCE);
+            probeResource(report, "facadeBeforeApp", facade, KNOWN_FAILING_RESOURCE);
             checkpoint(report);
 
             ApplicationInfo appInfo = targetContext.getApplicationInfo();
@@ -88,8 +98,16 @@ public final class ActivityOnCreateProbeService extends Service {
             checkpoint(report);
 
             Application application = instrumentation.newApplication(loader, appClassName, facade);
+            facade.setTargetApplication(application);
             report.append("applicationInstance=").append(application.getClass().getName()).append('\n');
+            report.append("applicationContext=")
+                    .append(application.getApplicationContext() == null ? "null" : application.getApplicationContext().getClass().getName())
+                    .append('\n');
             report.append("checkpoint=APPLICATION_ATTACHED\n");
+            checkpoint(report);
+
+            probeResource(report, "application", application, KNOWN_FAILING_RESOURCE);
+            probeResource(report, "facadeAfterApp", facade, KNOWN_FAILING_RESOURCE);
             checkpoint(report);
 
             report.append("checkpoint=BEFORE_APPLICATION_ONCREATE\n");
@@ -99,7 +117,7 @@ public final class ActivityOnCreateProbeService extends Service {
             report.append("stage=APPLICATION_READY\n");
             checkpoint(report);
 
-            PackageManager pm = getPackageManager();
+            PackageManager pm = facade.getPackageManager();
             ComponentName component = new ComponentName(target, TARGET_ACTIVITY);
             ActivityInfo activityInfo = pm.getActivityInfo(component, PackageManager.GET_META_DATA);
             int themeRes = activityInfo.theme != 0 ? activityInfo.theme : appInfo.theme;
@@ -144,10 +162,19 @@ public final class ActivityOnCreateProbeService extends Service {
             report.append("activityBaseContext=")
                     .append(activity.getBaseContext() == null ? "null" : activity.getBaseContext().getClass().getName())
                     .append('\n');
+            report.append("activityApplicationContext=")
+                    .append(activity.getApplicationContext() == null ? "null" : activity.getApplicationContext().getClass().getName())
+                    .append('\n');
+            report.append("activityResources=").append(activity.getResources().getClass().getName()).append('\n');
             report.append("activityWindow=")
                     .append(activity.getWindow() == null ? "null" : activity.getWindow().getClass().getName())
                     .append('\n');
             report.append("stage=ACTIVITY_ATTACHED\n");
+            checkpoint(report);
+
+            probeResource(report, "themedContext", themedContext, KNOWN_FAILING_RESOURCE);
+            probeResource(report, "activity", activity, KNOWN_FAILING_RESOURCE);
+            report.append("checkpoint=RESOURCE_PREFLIGHT_COMPLETE\n");
             checkpoint(report);
 
             report.append("checkpoint=BEFORE_ACTIVITY_ONCREATE\n");
@@ -168,14 +195,11 @@ public final class ActivityOnCreateProbeService extends Service {
         } catch (Throwable error) {
             report.append("checkpoint=CAUGHT_THROWABLE\n");
             report.append("stage=ACTIVITY_ONCREATE_FAILED\n");
-            report.append("error=").append(error.getClass().getName()).append(": ")
-                    .append(error.getMessage()).append('\n');
+            appendThrowable(report, "error", error, 30);
             Throwable cause = error.getCause();
             int depth = 0;
             while (cause != null && depth < 8) {
-                report.append("cause").append(depth).append('=')
-                        .append(cause.getClass().getName()).append(": ")
-                        .append(cause.getMessage()).append('\n');
+                appendThrowable(report, "cause" + depth, cause, 12);
                 cause = cause.getCause();
                 depth++;
             }
@@ -185,6 +209,41 @@ public final class ActivityOnCreateProbeService extends Service {
         report.append("=== END ACTIVITY ONCREATE REPORT ===\n");
         safeWrite(report.toString());
         stopSelf(startId);
+    }
+
+    private void probeResource(StringBuilder report, String label, Context context, int id) {
+        report.append("resourceProbe.").append(label).append(".context=")
+                .append(context == null ? "null" : context.getClass().getName()).append('\n');
+        if (context == null) {
+            report.append("resourceProbe.").append(label).append(".result=NULL_CONTEXT\n");
+            return;
+        }
+        try {
+            Resources resources = context.getResources();
+            String name = resources.getResourceName(id);
+            Drawable drawable = resources.getDrawable(id, context.getTheme());
+            report.append("resourceProbe.").append(label).append(".resources=")
+                    .append(resources.getClass().getName()).append('\n');
+            report.append("resourceProbe.").append(label).append(".name=").append(name).append('\n');
+            report.append("resourceProbe.").append(label).append(".drawable=")
+                    .append(drawable == null ? "null" : drawable.getClass().getName()).append('\n');
+            report.append("resourceProbe.").append(label).append(".result=OK\n");
+        } catch (Throwable error) {
+            report.append("resourceProbe.").append(label).append(".result=FAILED\n");
+            report.append("resourceProbe.").append(label).append(".error=")
+                    .append(error.getClass().getName()).append(": ").append(error.getMessage()).append('\n');
+        }
+    }
+
+    private void appendThrowable(StringBuilder report, String prefix, Throwable error, int frameLimit) {
+        report.append(prefix).append('=').append(error.getClass().getName()).append(": ")
+                .append(error.getMessage()).append('\n');
+        StackTraceElement[] frames = error.getStackTrace();
+        int count = Math.min(frameLimit, frames == null ? 0 : frames.length);
+        for (int i = 0; i < count; i++) {
+            report.append(prefix).append(".stack").append(i).append('=')
+                    .append(frames[i].toString()).append('\n');
+        }
     }
 
     private String processName() {
