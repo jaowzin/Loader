@@ -1,4 +1,0 @@
-run_id=32672646054
-run_number=41
-source_sha=dd18b9f65811a55cf2980d48736a0c590a3b7b85
-build_outcome=success

@@ -1,10 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
-
     <queries>
         <package android:name="com.miniclip.carrom" />
     </queries>
@@ -25,43 +21,9 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".runtime.RuntimeHostActivity"
-            android:exported="false"
-            android:process=":runtime" />
-
         <service
-            android:name=".overlay.GuideOverlayService"
+            android:name=".engine.VirtualRuntimeService"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-controlled trajectory guide overlay while Carrom Pool is in the foreground" />
-        </service>
-
-        <service
-            android:name=".runtime.ControlledRuntimeService"
-            android:exported="false"
-            android:process=":runtime" />
-
-        <service
-            android:name=".runtime.ApplicationAttachProbeService"
-            android:exported="false"
-            android:process=":app_probe" />
-
-        <service
-            android:name=".runtime.ApplicationOnCreateProbeService"
-            android:exported="false"
-            android:process=":oncreate_probe" />
-
-        <service
-            android:name=".runtime.ActivityAttachProbeService"
-            android:exported="false"
-            android:process=":activity_probe" />
-
-        <service
-            android:name=".runtime.ActivityOnCreateProbeService"
-            android:exported="false"
-            android:process=":activity_oncreate_probe" />
+            android:process=":virtual" />
     </application>
 </manifest>

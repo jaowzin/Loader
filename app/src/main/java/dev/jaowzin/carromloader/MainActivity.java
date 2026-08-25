@@ -5,12 +5,11 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Typeface;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.Settings;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
@@ -18,22 +17,20 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import dev.jaowzin.carromloader.engine.CarromGameEngine;
-import dev.jaowzin.carromloader.engine.GameEngine;
-import dev.jaowzin.carromloader.overlay.GuideOverlayService;
-import dev.jaowzin.carromloader.runtime.ActivityAttachProbeService;
-import dev.jaowzin.carromloader.runtime.ActivityOnCreateProbeService;
-import dev.jaowzin.carromloader.runtime.ApplicationAttachProbeService;
-import dev.jaowzin.carromloader.runtime.ApplicationOnCreateProbeService;
-import dev.jaowzin.carromloader.runtime.ControlledRuntimeService;
-import dev.jaowzin.carromloader.runtime.RuntimeHostActivity;
-import dev.jaowzin.carromloader.runtime.RuntimeReportStore;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import dev.jaowzin.carromloader.carrom.CarromTarget;
+import dev.jaowzin.carromloader.engine.RuntimeReportStore;
+import dev.jaowzin.carromloader.engine.VirtualAppStore;
+import dev.jaowzin.carromloader.engine.VirtualPackage;
+import dev.jaowzin.carromloader.engine.VirtualRuntimeService;
 
 public final class MainActivity extends Activity {
-    private final GameEngine engine = new CarromGameEngine();
+    private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TextView status;
-    private TextView runtimeStatus;
+    private TextView report;
     private ScrollView scrollView;
 
     @Override
@@ -45,75 +42,65 @@ public final class MainActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(24), dp(32), dp(24), dp(32));
+        root.setPadding(dp(22), dp(30), dp(22), dp(30));
         root.setBackgroundColor(0xFFF4F4F4);
         scrollView.addView(root, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
+                ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView title = new TextView(this);
-        title.setText("Carrom Loader");
+        title.setText("Carrom Loader v2");
         title.setTextSize(28f);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setTextColor(0xFF111111);
         root.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Clean-room CTF companion • controlled runtime diagnostics");
+        subtitle.setText("Clean-room dual-app engine foundation");
         subtitle.setTextSize(14f);
         subtitle.setTextColor(0xFF555555);
-        subtitle.setPadding(0, dp(4), 0, dp(20));
+        subtitle.setPadding(0, dp(4), 0, dp(18));
         root.addView(subtitle);
 
         status = new TextView(this);
-        status.setTextSize(15f);
+        status.setTextSize(14f);
         status.setTextColor(0xFF222222);
         status.setPadding(dp(12), dp(12), dp(12), dp(12));
-        status.setBackgroundColor(0xFFE7E7E7);
+        status.setBackgroundColor(0xFFE6E6E6);
         root.addView(status, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
+                ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        root.addView(action("1. Grant overlay permission", v -> requestOverlayPermission()));
-        root.addView(action("2. Start trajectory overlay", v -> startOverlay()));
-        root.addView(action("3. Open Carrom Pool", v -> launchCarrom()));
-        root.addView(action("4. Prepare controlled runtime", v -> prepareControlledRuntime()));
-        root.addView(action("5. Open runtime host shell", v -> openRuntimeHost()));
-        root.addView(action("6. Attach CarromApplication (no onCreate)", v -> attachTargetApplication()));
-        root.addView(action("7. Run CarromApplication.onCreate", v -> runTargetApplicationOnCreate()));
-        root.addView(action("8. Attach CarromActivity (no onCreate)", v -> runTargetActivityAttach()));
-        root.addView(action("9. Run CarromActivity.onCreate", v -> runTargetActivityOnCreate()));
-        root.addView(action("Refresh runtime report", v -> {
-            refreshRuntimeReport();
+        root.addView(action("1. Import Carrom into virtual store", v -> importCarrom()));
+        root.addView(action("2. Prepare isolated virtual runtime", v -> prepareRuntime()));
+        root.addView(action("3. Clear imported virtual package", v -> clearImported()));
+        root.addView(action("Refresh report", v -> {
+            refreshReport();
             scrollToReport();
         }));
-        root.addView(action("Copy runtime report", v -> copyRuntimeReport()));
-        root.addView(action("Stop overlay", v -> stopService(new Intent(this, GuideOverlayService.class))));
+        root.addView(action("Copy report", v -> copyReport()));
 
-        TextView runtimeTitle = new TextView(this);
-        runtimeTitle.setText("Controlled runtime report");
-        runtimeTitle.setTypeface(Typeface.DEFAULT_BOLD);
-        runtimeTitle.setTextSize(14f);
-        runtimeTitle.setTextColor(0xFF222222);
-        runtimeTitle.setPadding(0, dp(20), 0, dp(6));
-        root.addView(runtimeTitle);
+        TextView reportTitle = new TextView(this);
+        reportTitle.setText("Virtual engine report");
+        reportTitle.setTypeface(Typeface.DEFAULT_BOLD);
+        reportTitle.setTextSize(14f);
+        reportTitle.setTextColor(0xFF222222);
+        reportTitle.setPadding(0, dp(20), 0, dp(6));
+        root.addView(reportTitle);
 
-        runtimeStatus = new TextView(this);
-        runtimeStatus.setTextSize(11f);
-        runtimeStatus.setTextColor(0xFF333333);
-        runtimeStatus.setPadding(dp(10), dp(10), dp(10), dp(10));
-        runtimeStatus.setBackgroundColor(0xFFFFFFFF);
-        runtimeStatus.setTextIsSelectable(true);
-        runtimeStatus.setMinHeight(dp(180));
-        root.addView(runtimeStatus, new LinearLayout.LayoutParams(
+        report = new TextView(this);
+        report.setTextSize(11f);
+        report.setTextColor(0xFF333333);
+        report.setPadding(dp(10), dp(10), dp(10), dp(10));
+        report.setBackgroundColor(0xFFFFFFFF);
+        report.setTextIsSelectable(true);
+        report.setMinHeight(dp(220));
+        root.addView(report, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        ));
+                ViewGroup.LayoutParams.WRAP_CONTENT));
 
         TextView info = new TextView(this);
-        info.setText("Phase 7 rebuilds the passing Application + Activity attach path in :activity_oncreate_probe and then calls only CarromActivity.onCreate(). Checkpoints are written immediately before and after the Activity lifecycle call so native/process failure remains diagnosable.");
+        info.setText("v2.0 imports the installed Carrom base APK and every split into Loader-private storage, extracts the matching native ABI, and resolves Carrom code through a DexClassLoader whose dex/native paths point only at the imported copy. It does not claim full Activity virtualization yet; lifecycle/resources hooks come next.");
         info.setTextSize(13f);
         info.setTextColor(0xFF555555);
         info.setPadding(0, dp(18), 0, 0);
@@ -121,183 +108,152 @@ public final class MainActivity extends Activity {
 
         setContentView(scrollView);
         refreshStatus();
-        refreshRuntimeReport();
+        refreshReport();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
         refreshStatus();
-        refreshRuntimeReport();
+        refreshReport();
     }
 
-    private Button action(String label, android.view.View.OnClickListener listener) {
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        worker.shutdownNow();
+    }
+
+    private Button action(String text, android.view.View.OnClickListener listener) {
         Button button = new Button(this);
-        button.setText(label);
+        button.setText(text);
         button.setAllCaps(false);
         button.setTextSize(15f);
         button.setOnClickListener(listener);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(52)
-        );
-        lp.setMargins(0, dp(10), 0, 0);
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(54));
+        lp.setMargins(0, dp(9), 0, 0);
         button.setLayoutParams(lp);
         return button;
     }
 
-    private void requestOverlayPermission() {
-        if (Settings.canDrawOverlays(this)) {
-            toast("Overlay permission already granted");
-            return;
-        }
-        Intent intent = new Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:" + getPackageName())
-        );
-        startActivity(intent);
-    }
-
-    private void startOverlay() {
-        if (!Settings.canDrawOverlays(this)) {
-            requestOverlayPermission();
-            return;
-        }
-        Intent intent = new Intent(this, GuideOverlayService.class);
-        startForegroundService(intent);
-        toast("Guide overlay started");
-    }
-
-    private void launchCarrom() {
-        if (!engine.isAvailable(this)) {
+    private void importCarrom() {
+        if (!isCarromInstalled()) {
             toast("Carrom Pool is not installed");
             return;
         }
-        if (!engine.launch(this)) {
-            toast("Could not launch Carrom Pool");
-        }
-    }
-
-    private void prepareControlledRuntime() {
-        if (!engine.isAvailable(this)) {
-            toast("Carrom Pool is not installed");
-            return;
-        }
-        Intent intent = new Intent(this, ControlledRuntimeService.class)
-                .setAction(ControlledRuntimeService.ACTION_PREPARE)
-                .putExtra(ControlledRuntimeService.EXTRA_PACKAGE, engine.getTargetPackage());
-        startService(intent);
-        runtimeStatus.setText("Preparing isolated runtime…");
+        report.setText("Importing base APK + splits into Loader private storage…\nThis can take a while because the game is large.");
         scrollToReport();
-        handler.postDelayed(() -> { refreshRuntimeReport(); scrollToReport(); }, 1200L);
-        toast("Controlled runtime probe started");
+        worker.submit(() -> {
+            long started = System.currentTimeMillis();
+            try {
+                VirtualPackage imported = VirtualAppStore.importInstalled(this, CarromTarget.PACKAGE);
+                String text = "=== VIRTUAL PACKAGE IMPORT ===\n"
+                        + "package=" + imported.packageName + "\n"
+                        + "version=" + imported.versionName + " (" + imported.versionCode + ")\n"
+                        + "privateRoot=" + imported.rootDir.getAbsolutePath() + "\n"
+                        + "apkCount=" + imported.apkFiles.size() + "\n"
+                        + "dexPath=" + imported.dexPath() + "\n"
+                        + "installedSourceUsedAfterImport=NO\n"
+                        + "stage=PACKAGE_IMPORTED\n"
+                        + "elapsedMs=" + (System.currentTimeMillis() - started) + "\n"
+                        + "=== END IMPORT ===\n";
+                RuntimeReportStore.write(this, text);
+                runOnUiThread(() -> {
+                    refreshStatus();
+                    refreshReport();
+                    scrollToReport();
+                    toast("Carrom imported into virtual store");
+                });
+            } catch (Throwable error) {
+                RuntimeReportStore.write(this,
+                        "=== VIRTUAL PACKAGE IMPORT ===\n"
+                                + "stage=IMPORT_FAILED\n"
+                                + "error=" + error.getClass().getName() + ": " + error.getMessage() + "\n"
+                                + "=== END IMPORT ===\n");
+                runOnUiThread(() -> {
+                    refreshReport();
+                    scrollToReport();
+                    toast("Import failed; check report");
+                });
+            }
+        });
     }
 
-    private void openRuntimeHost() {
-        if (!engine.isAvailable(this)) {
-            toast("Carrom Pool is not installed");
+    private void prepareRuntime() {
+        if (!VirtualAppStore.isImported(this, CarromTarget.PACKAGE)) {
+            toast("Import Carrom first");
             return;
         }
-        startActivity(new Intent(this, RuntimeHostActivity.class));
-    }
-
-    private void attachTargetApplication() {
-        if (!engine.isAvailable(this)) {
-            toast("Carrom Pool is not installed");
-            return;
-        }
-        Intent intent = new Intent(this, ApplicationAttachProbeService.class)
-                .setAction(ApplicationAttachProbeService.ACTION_ATTACH)
-                .putExtra(ApplicationAttachProbeService.EXTRA_PACKAGE, engine.getTargetPackage());
+        Intent intent = new Intent(this, VirtualRuntimeService.class)
+                .setAction(VirtualRuntimeService.ACTION_PREPARE)
+                .putExtra(VirtualRuntimeService.EXTRA_PACKAGE, CarromTarget.PACKAGE);
         startService(intent);
-        runtimeStatus.setText("Starting :app_probe and waiting for first checkpoint…");
+        report.setText("Preparing :virtual runtime from the imported APK copies…");
         scrollToReport();
-        scheduleReportRefreshes();
-        toast("Application attach probe started");
-    }
-
-    private void runTargetApplicationOnCreate() {
-        if (!engine.isAvailable(this)) {
-            toast("Carrom Pool is not installed");
-            return;
-        }
-        Intent intent = new Intent(this, ApplicationOnCreateProbeService.class)
-                .setAction(ApplicationOnCreateProbeService.ACTION_RUN)
-                .putExtra(ApplicationOnCreateProbeService.EXTRA_PACKAGE, engine.getTargetPackage());
-        startService(intent);
-        runtimeStatus.setText("Running CarromApplication.onCreate in isolated :oncreate_probe…");
-        scrollToReport();
-        scheduleReportRefreshes();
-        toast("Application onCreate probe started");
-    }
-
-    private void runTargetActivityAttach() {
-        if (!engine.isAvailable(this)) {
-            toast("Carrom Pool is not installed");
-            return;
-        }
-        Intent intent = new Intent(this, ActivityAttachProbeService.class)
-                .setAction(ActivityAttachProbeService.ACTION_RUN)
-                .putExtra(ActivityAttachProbeService.EXTRA_PACKAGE, engine.getTargetPackage());
-        startService(intent);
-        runtimeStatus.setText("Attaching CarromActivity in isolated :activity_probe…");
-        scrollToReport();
-        scheduleReportRefreshes();
-        toast("Activity attach probe started");
-    }
-
-    private void runTargetActivityOnCreate() {
-        if (!engine.isAvailable(this)) {
-            toast("Carrom Pool is not installed");
-            return;
-        }
-        Intent intent = new Intent(this, ActivityOnCreateProbeService.class)
-                .setAction(ActivityOnCreateProbeService.ACTION_RUN)
-                .putExtra(ActivityOnCreateProbeService.EXTRA_PACKAGE, engine.getTargetPackage());
-        startService(intent);
-        runtimeStatus.setText("Running CarromActivity.onCreate in isolated :activity_oncreate_probe…");
-        scrollToReport();
-        scheduleReportRefreshes();
-        toast("Activity onCreate probe started");
-    }
-
-    private void scheduleReportRefreshes() {
-        long[] delays = {150L, 350L, 700L, 1500L, 3000L, 5000L, 8000L};
+        long[] delays = {300L, 900L, 1800L, 3500L, 6000L, 10000L};
         for (long delay : delays) {
             handler.postDelayed(() -> {
-                refreshRuntimeReport();
+                refreshReport();
                 scrollToReport();
             }, delay);
         }
     }
 
-    private void copyRuntimeReport() {
-        String report = RuntimeReportStore.read(this);
-        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        if (clipboard != null) {
-            clipboard.setPrimaryClip(ClipData.newPlainText("Carrom Loader runtime report", report));
-            toast("Runtime report copied");
-        }
+    private void clearImported() {
+        worker.submit(() -> {
+            VirtualAppStore.clear(this, CarromTarget.PACKAGE);
+            RuntimeReportStore.clear(this);
+            runOnUiThread(() -> {
+                refreshStatus();
+                refreshReport();
+                toast("Virtual package cleared");
+            });
+        });
     }
 
-    private void scrollToReport() {
-        if (scrollView == null || runtimeStatus == null) return;
-        scrollView.post(() -> scrollView.smoothScrollTo(0, runtimeStatus.getTop()));
+    private boolean isCarromInstalled() {
+        try {
+            getPackageManager().getApplicationInfo(CarromTarget.PACKAGE, 0);
+            return true;
+        } catch (PackageManager.NameNotFoundException error) {
+            return false;
+        }
     }
 
     private void refreshStatus() {
         if (status == null) return;
-        boolean installed = engine.isAvailable(this);
-        boolean overlay = Settings.canDrawOverlays(this);
-        status.setText("Carrom installed: " + (installed ? "YES" : "NO")
-                + "\nOverlay permission: " + (overlay ? "YES" : "NO")
-                + "\nTarget: " + engine.getTargetPackage());
+        boolean installed = isCarromInstalled();
+        boolean imported = VirtualAppStore.isImported(this, CarromTarget.PACKAGE);
+        StringBuilder text = new StringBuilder();
+        text.append("Installed Carrom: ").append(installed ? "YES" : "NO");
+        text.append("\nImported virtual copy: ").append(imported ? "YES" : "NO");
+        if (imported) {
+            try {
+                VirtualPackage pkg = VirtualAppStore.loadImported(this, CarromTarget.PACKAGE);
+                text.append("\nVersion: ").append(pkg.versionName).append(" (").append(pkg.versionCode).append(')');
+                text.append("\nAPK files: ").append(pkg.apkFiles.size());
+            } catch (Throwable ignored) {
+            }
+        }
+        status.setText(text.toString());
     }
 
-    private void refreshRuntimeReport() {
-        if (runtimeStatus != null) {
-            runtimeStatus.setText(RuntimeReportStore.read(this));
+    private void refreshReport() {
+        if (report != null) report.setText(RuntimeReportStore.read(this));
+    }
+
+    private void copyReport() {
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(ClipData.newPlainText("Carrom Loader v2 report", RuntimeReportStore.read(this)));
+            toast("Report copied");
         }
+    }
+
+    private void scrollToReport() {
+        if (scrollView == null || report == null) return;
+        scrollView.post(() -> scrollView.smoothScrollTo(0, report.getTop()));
     }
 
     private void toast(String text) {

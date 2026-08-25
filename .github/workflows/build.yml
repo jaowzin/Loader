@@ -1,23 +1,13 @@
-name: Build Carrom Loader
+name: Build Carrom Loader v2
 
 on:
   push:
     branches: [ main ]
-    paths-ignore:
-      - 'dist/**'
   workflow_dispatch:
-
-permissions:
-  contents: write
-
-concurrency:
-  group: carrom-loader-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
 
@@ -39,45 +29,11 @@ jobs:
           gradle-version: '8.9'
 
       - name: Build debug APK
-        id: apk_build
-        shell: bash
-        run: |
-          mkdir -p dist
-          set +e
-          gradle :app:assembleDebug --stacktrace 2>&1 | tee dist/build.log
-          status=${PIPESTATUS[0]}
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          if [ "$status" -eq 0 ]; then
-            cp app/build/outputs/apk/debug/app-debug.apk dist/CarromLoader-latest.apk
-          fi
-          exit 0
+        run: gradle :app:assembleDebug --stacktrace
 
-      - name: Write build metadata
-        shell: bash
-        run: |
-          if [ "${{ steps.apk_build.outputs.status }}" = "0" ]; then outcome=success; else outcome=failure; fi
-          printf 'run_id=%s\nrun_number=%s\nsource_sha=%s\nbuild_outcome=%s\n' \
-            '${{ github.run_id }}' '${{ github.run_number }}' '${{ github.sha }}' "$outcome" > dist/run.txt
-
-      - name: Upload APK artifact
-        if: steps.apk_build.outputs.status == '0'
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: CarromLoader-debug
-          path: dist/CarromLoader-latest.apk
+          name: CarromLoader-v2-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-
-      - name: Store latest build in repository
-        shell: bash
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add dist/build.log dist/run.txt
-          if [ -f dist/CarromLoader-latest.apk ]; then git add dist/CarromLoader-latest.apk; fi
-          git commit -m 'CI: store latest Loader build [skip ci]' || exit 0
-          git pull --rebase origin main
-          git push origin HEAD:main
-
-      - name: Fail workflow if Gradle failed
-        if: steps.apk_build.outputs.status != '0'
-        run: exit 1
