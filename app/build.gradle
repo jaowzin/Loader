@@ -4,14 +4,15 @@ plugins {
 
 android {
     namespace 'dev.jaowzin.carromloader'
-    compileSdk 35
+    compileSdk rootProject.ext.compileSdkVersion
+    ndkVersion = '29.0.13846066'
 
     defaultConfig {
         applicationId 'dev.jaowzin.carromloader'
-        minSdk 26
-        targetSdk 35
-        versionCode 200
-        versionName '2.0.0'
+        minSdk rootProject.ext.minSdk
+        targetSdk rootProject.ext.targetSdkVersion
+        versionCode rootProject.ext.versionCode
+        versionName rootProject.ext.versionName
     }
 
     buildTypes {
@@ -22,4 +23,22 @@ android {
             minifyEnabled false
         }
     }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+            pickFirsts += ['**/libc++_shared.so']
+        }
+    }
+}
+
+dependencies {
+    implementation project(':Bcore')
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
 }

@@ -6,6 +6,7 @@
     </queries>
 
     <application
+        android:name=".CarromLoaderApp"
         android:allowBackup="false"
         android:label="Carrom Loader"
         android:supportsRtl="true"
@@ -20,10 +21,5 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <service
-            android:name=".engine.VirtualRuntimeService"
-            android:exported="false"
-            android:process=":virtual" />
     </application>
 </manifest>
