@@ -1,9 +1,16 @@
-name: Build Carrom Loader (NewBlackbox)
+name: Build Carrom Loader
 
 on:
   push:
     branches: [ main ]
   workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: carrom-loader-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -12,6 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - name: Set up Java 21
         uses: actions/setup-java@v4
@@ -30,12 +38,48 @@ jobs:
         with:
           gradle-version: '8.14.5'
 
+      - name: Vendor runtime engine into repository
+        id: vendor
+        shell: bash
+        run: |
+          if [ -d engine/NewBlackbox ]; then
+            python3 tools/vendor_runtime.py
+            git rm -f engine/NewBlackbox
+            git rm -f .gitmodules
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify no project branding remains in runtime source
+        shell: bash
+        run: |
+          set -e
+          if [ -d runtime-core ]; then
+            if grep -RniE 'NewBlackbox|BlackBox|blackbox|black-reflection|blackreflection|top\.niunaijun\.blackbox' \
+              runtime-core runtime-bridge runtime-codegen app \
+              --exclude-dir=build --exclude='LICENSE' ; then
+              echo 'Legacy runtime branding still exists.'
+              exit 1
+            fi
+          fi
+
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
+
+      - name: Commit vendored runtime
+        if: steps.vendor.outputs.changed == 'true'
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Vendor runtime engine and migrate Carrom Loader namespaces [skip ci]'
+          git push origin HEAD:main
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: CarromLoader-NewBlackbox-debug
+          name: CarromLoader-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
