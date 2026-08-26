@@ -14,8 +14,8 @@ import android.widget.Toast;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import top.niunaijun.blackbox.BlackBoxCore;
-import top.niunaijun.blackbox.entity.pm.InstallResult;
+import dev.jaowzin.carromloader.runtime.CarromRuntimeCore;
+import dev.jaowzin.carromloader.runtime.entity.pm.InstallResult;
 
 public final class MainActivity extends Activity {
     private static final String TARGET = "com.miniclip.carrom";
@@ -98,7 +98,7 @@ public final class MainActivity extends Activity {
         setLog("Cloning installed Carrom into runtime user 0…");
         worker.execute(() -> {
             try {
-                InstallResult result = BlackBoxCore.get().installPackageAsUser(TARGET, USER_ID);
+                InstallResult result = CarromRuntimeCore.get().installPackageAsUser(TARGET, USER_ID);
                 String message = result.success
                         ? "INSTALL SUCCESS\npackage=" + result.packageName
                         : "INSTALL FAILED\n" + result.msg;
@@ -116,7 +116,7 @@ public final class MainActivity extends Activity {
         setLog("Launching Carrom through Carrom Runtime…");
         worker.execute(() -> {
             try {
-                boolean launched = BlackBoxCore.get().launchApk(TARGET, USER_ID);
+                boolean launched = CarromRuntimeCore.get().launchApk(TARGET, USER_ID);
                 runOnUiThread(() -> {
                     setLog("launchApk=" + launched + "\n\n" + CarromModuleBridge.status());
                     if (!launched) toast("Virtual launch returned false");
@@ -130,7 +130,7 @@ public final class MainActivity extends Activity {
     private void uninstallVirtual() {
         worker.execute(() -> {
             try {
-                BlackBoxCore.get().uninstallPackageAsUser(TARGET, USER_ID);
+                CarromRuntimeCore.get().uninstallPackageAsUser(TARGET, USER_ID);
                 runOnUiThread(() -> {
                     setLog("Virtual Carrom removed");
                     refreshStatus();
@@ -146,8 +146,8 @@ public final class MainActivity extends Activity {
         boolean virtualInstalled = false;
         boolean services = false;
         try {
-            virtualInstalled = BlackBoxCore.get().isInstalled(TARGET, USER_ID);
-            services = BlackBoxCore.get().areServicesAvailable();
+            virtualInstalled = CarromRuntimeCore.get().isInstalled(TARGET, USER_ID);
+            services = CarromRuntimeCore.get().areServicesAvailable();
         } catch (Throwable ignored) {
         }
         if (status != null) {

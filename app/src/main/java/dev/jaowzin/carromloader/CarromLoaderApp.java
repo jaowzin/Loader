@@ -6,9 +6,9 @@ import android.util.Log;
 
 import java.io.File;
 
-import top.niunaijun.blackbox.BlackBoxCore;
-import top.niunaijun.blackbox.app.configuration.AppLifecycleCallback;
-import top.niunaijun.blackbox.app.configuration.ClientConfiguration;
+import dev.jaowzin.carromloader.runtime.CarromRuntimeCore;
+import dev.jaowzin.carromloader.runtime.app.configuration.AppLifecycleCallback;
+import dev.jaowzin.carromloader.runtime.app.configuration.ClientConfiguration;
 
 public final class CarromLoaderApp extends Application {
     private static final String TAG = "CarromLoaderApp";
@@ -17,7 +17,7 @@ public final class CarromLoaderApp extends Application {
     @Override
     protected void attachBaseContext(Context base) {
         super.attachBaseContext(base);
-        BlackBoxCore core = BlackBoxCore.get();
+        CarromRuntimeCore core = CarromRuntimeCore.get();
 
         try {
             core.closeCodeInit();
@@ -108,9 +108,9 @@ public final class CarromLoaderApp extends Application {
     public void onCreate() {
         super.onCreate();
         try {
-            BlackBoxCore.get().doCreate();
+            CarromRuntimeCore.get().doCreate();
         } catch (Throwable error) {
-            Log.e(TAG, "BlackBoxCore.doCreate failed", error);
+            Log.e(TAG, "CarromRuntimeCore.doCreate failed", error);
         }
     }
 }

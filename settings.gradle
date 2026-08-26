@@ -17,12 +17,7 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "CarromLoader"
-
 include ':app'
-include ':Bcore'
-include ':black-reflection'
-include ':compiler'
-
-project(':Bcore').projectDir = file('engine/NewBlackbox/Bcore')
-project(':black-reflection').projectDir = file('engine/NewBlackbox/black-reflection')
-project(':compiler').projectDir = file('engine/NewBlackbox/compiler')
+include ':runtime-core'
+include ':runtime-bridge'
+include ':runtime-codegen'
