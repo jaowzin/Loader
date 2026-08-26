@@ -34,11 +34,20 @@ std::atomic<int> gPlayer{-1};
 std::atomic<int64_t> gPositionNs{0};
 std::atomic<int64_t> gAngleNs{0};
 std::atomic<uintptr_t> gModuleBase{0};
+std::atomic<bool> gCallbackRegistered{false};
+std::atomic<bool> gInstalling{false};
+
+int installHooks();
 
 int64_t monotonicNs() {
     timespec ts{};
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return static_cast<int64_t>(ts.tv_sec) * 1000000000LL + ts.tv_nsec;
+}
+
+bool isCarromImage(const char *name) {
+    return name && *name &&
+           (std::strstr(name, "libgame-CARROM") || std::strstr(name, "libcarrom.so"));
 }
 
 MCPoint hookGetStriker(void *self, void *selector, int playerId) {
@@ -67,12 +76,9 @@ struct FindContext { uintptr_t base = 0; };
 int findModuleCallback(dl_phdr_info *info, size_t, void *data) {
     if (!info || !data) return 0;
     const char *name = info->dlpi_name;
-    if (!name || !*name) return 0;
-    if (std::strstr(name, "libgame-CARROM") || std::strstr(name, "libcarrom.so")) {
-        static_cast<FindContext *>(data)->base = static_cast<uintptr_t>(info->dlpi_addr);
-        return 1;
-    }
-    return 0;
+    if (!isCarromImage(name)) return 0;
+    static_cast<FindContext *>(data)->base = static_cast<uintptr_t>(info->dlpi_addr);
+    return 1;
 }
 
 uintptr_t findModuleBase() {
@@ -87,16 +93,40 @@ bool selectorMatches(uintptr_t base, uintptr_t rva, const char *expected) {
     return value && std::strcmp(value, expected) == 0;
 }
 
+void onImageLoaded(const char *imageName, void *) {
+    if (!isCarromImage(imageName)) return;
+    __android_log_print(ANDROID_LOG_INFO, kTag, "Carrom native image loaded: %s", imageName);
+    gStatus.store(1, std::memory_order_release);
+    installHooks();
+}
+
+void ensureImageCallbackRegistered() {
+#if defined(__aarch64__)
+    bool expected = false;
+    if (gCallbackRegistered.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        dobby_register_image_load_callback(onImageLoaded);
+        __android_log_print(ANDROID_LOG_INFO, kTag, "registered native image load callback");
+    }
+#endif
+}
+
 int installHooks() {
 #if !defined(__aarch64__)
     gStatus.store(-1, std::memory_order_release);
     return -1;
 #else
+    ensureImageCallbackRegistered();
     if (gStatus.load(std::memory_order_acquire) == 2) return 2;
+
+    bool expected = false;
+    if (!gInstalling.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        return gStatus.load(std::memory_order_acquire);
+    }
 
     uintptr_t base = findModuleBase();
     if (!base) {
         gStatus.store(1, std::memory_order_release);
+        gInstalling.store(false, std::memory_order_release);
         return 1;
     }
     gModuleBase.store(base, std::memory_order_release);
@@ -105,6 +135,7 @@ int installHooks() {
         !selectorMatches(base, kGetAngleSelectorRva, "controlsGetAngle:")) {
         __android_log_print(ANDROID_LOG_WARN, kTag, "Carrom build signature mismatch base=%p", reinterpret_cast<void *>(base));
         gStatus.store(-2, std::memory_order_release);
+        gInstalling.store(false, std::memory_order_release);
         return -2;
     }
 
@@ -115,11 +146,13 @@ int installHooks() {
     if (first != 0 || second != 0 || !gOriginalGetStriker || !gOriginalGetAngle) {
         __android_log_print(ANDROID_LOG_ERROR, kTag, "DobbyHook failed striker=%d angle=%d", first, second);
         gStatus.store(-3, std::memory_order_release);
+        gInstalling.store(false, std::memory_order_release);
         return -3;
     }
 
     __android_log_print(ANDROID_LOG_INFO, kTag, "native aim hooks installed base=%p", reinterpret_cast<void *>(base));
     gStatus.store(2, std::memory_order_release);
+    gInstalling.store(false, std::memory_order_release);
     return 2;
 #endif
 }
