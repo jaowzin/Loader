@@ -17,17 +17,7 @@ LOCAL_SRC_FILES := xdl/xdl.c \
 LOCAL_C_INCLUDES := $(LOCAL_PATH)
 include $(BUILD_STATIC_LIBRARY)
 
-
 include $(CLEAR_VARS)
-# Collect all source files in the current directory
-SRC1 := $(wildcard $(LOCAL_PATH)/*.cpp) $(wildcard $(LOCAL_PATH)/*.c)
-# Collect all source files in Utils/
-SRC2 := $(wildcard $(LOCAL_PATH)/Utils/*.cpp) $(wildcard $(LOCAL_PATH)/Utils/*.c)
-# Collect all source files in Hook/
-SRC3 := $(wildcard $(LOCAL_PATH)/Hook/*.cpp) $(wildcard $(LOCAL_PATH)/Hook/*.c)
-# Collect all source files in JniHook/
-SRC4 := $(wildcard $(LOCAL_PATH)/JniHook/*.cpp) $(wildcard $(LOCAL_PATH)/JniHook/*.c)
-
 LOCAL_MODULE := carromruntime
 LOCAL_SRC_FILES := BoxCore.cpp \
 hidden_api.cpp \
@@ -42,6 +32,7 @@ Hook/VMClassLoaderHook.cpp \
 Hook/UnixFileSystemHook.cpp \
 Hook/BinderHook.cpp \
 Hook/BaseHook.cpp \
+Hook/CarromAimHook.cpp \
 JniHook/JniHook.cpp
 
 LOCAL_C_INCLUDES += $(LOCAL_PATH)
@@ -49,7 +40,6 @@ LOCAL_CFLAGS += -Wno-error=format-security -fvisibility=hidden -ffunction-sectio
 LOCAL_CPPFLAGS += -Wno-error=format-security -fvisibility=hidden -ffunction-sections -fdata-sections -w -Werror -fms-extensions
 LOCAL_LDFLAGS += -Wl,--gc-sections,--strip-all,-z,max-page-size=16384
 LOCAL_ARM_MODE := arm
-
 LOCAL_CPP_FEATURES := exceptions
 LOCAL_STATIC_LIBRARIES := libdobby xdl
 LOCAL_LDLIBS := -llog -landroid -lz

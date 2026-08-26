@@ -26,6 +26,7 @@ public final class CarromModuleBridge {
     ) {
         boolean lines = FeatureSettings.linesEnabled(hostContext);
         boolean bank = FeatureSettings.bankPreviewEnabled(hostContext);
+        NativeAimBridge.ensureStarted();
         AimOverlayController.install(application, lines, bank);
 
         String value = "CarromApplication READY in virtual engine"
@@ -34,12 +35,13 @@ public final class CarromModuleBridge {
                 + "\napplication=" + (application == null ? "null" : application.getClass().getName())
                 + "\nlines=" + (lines ? "ON" : "OFF")
                 + "\nbankPreview=" + (bank ? "ON" : "OFF")
+                + "\n" + NativeAimBridge.summary()
                 + "\nautoPlay=NEXT_STAGE";
         LAST.set(value);
         Log.i(TAG, value.replace('\n', ' '));
     }
 
     public static String status() {
-        return LAST.get();
+        return LAST.get() + "\n" + NativeAimBridge.summary();
     }
 }

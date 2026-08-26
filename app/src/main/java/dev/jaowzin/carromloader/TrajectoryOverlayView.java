@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.graphics.DashPathEffect;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.PointF;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.os.Handler;
@@ -21,22 +22,22 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 final class TrajectoryOverlayView extends View {
-    private static final String TAG = "carrom_line_vision";
+    private static final String TAG = "carrom_line";
     private static final int CYAN = Color.rgb(91, 245, 218);
     private static final int ICE = Color.rgb(218, 255, 249);
     private static final int BLUE = Color.rgb(75, 214, 255);
     private static final long FRAME_INTERVAL_MS = 520L;
     private static final long VISION_MAX_AGE_MS = 3500L;
 
-    private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint rail = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint core = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint startDot = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint impactFill = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint impactRing = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint ghostFill = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint ghostRing = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint ghostCore = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint glow = stroke(Color.argb(52, 91, 245, 218), 8.5f);
+    private final Paint rail = stroke(Color.argb(90, 255, 255, 255), 4.2f);
+    private final Paint core = stroke(CYAN, 2.15f);
+    private final Paint startDot = fill(Color.WHITE);
+    private final Paint impactFill = fill(Color.argb(225, 218, 255, 249));
+    private final Paint impactRing = stroke(Color.argb(170, 91, 245, 218), 1.4f);
+    private final Paint ghostFill = fill(Color.argb(43, 91, 245, 218));
+    private final Paint ghostRing = stroke(Color.argb(220, 155, 255, 236), 1.7f);
+    private final Paint ghostCore = fill(Color.argb(215, 230, 255, 251));
     private final ShotPredictor predictor = new ShotPredictor();
     private final boolean bankPreview;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -46,14 +47,12 @@ final class TrajectoryOverlayView extends View {
     private BoardVision.State visionState;
     private boolean visionRunning;
     private boolean captureInFlight;
-
     private float startX;
     private float startY;
     private float currentX;
     private float currentY;
     private boolean active;
     private int clearGeneration;
-
     private final Runnable captureLoop = this::captureFrame;
 
     TrajectoryOverlayView(Context context, boolean bankPreview) {
@@ -64,52 +63,23 @@ final class TrajectoryOverlayView extends View {
         setWillNotDraw(false);
         setLayerType(LAYER_TYPE_SOFTWARE, null);
 
-        glow.setStyle(Paint.Style.STROKE);
         glow.setStrokeCap(Paint.Cap.ROUND);
         glow.setStrokeJoin(Paint.Join.ROUND);
-        glow.setStrokeWidth(dp(8.5f));
-        glow.setColor(Color.argb(52, 91, 245, 218));
         glow.setShadowLayer(dp(7), 0f, 0f, Color.argb(115, 91, 245, 218));
-
-        rail.setStyle(Paint.Style.STROKE);
         rail.setStrokeCap(Paint.Cap.ROUND);
         rail.setStrokeJoin(Paint.Join.ROUND);
-        rail.setStrokeWidth(dp(4.2f));
-        rail.setColor(Color.argb(90, 255, 255, 255));
-
-        core.setStyle(Paint.Style.STROKE);
         core.setStrokeCap(Paint.Cap.ROUND);
         core.setStrokeJoin(Paint.Join.ROUND);
-        core.setStrokeWidth(dp(2.15f));
-
-        startDot.setStyle(Paint.Style.FILL);
-        startDot.setColor(Color.WHITE);
         startDot.setShadowLayer(dp(5), 0f, 0f, Color.argb(190, 91, 245, 218));
-
-        impactFill.setStyle(Paint.Style.FILL);
-        impactFill.setColor(Color.argb(225, 218, 255, 249));
         impactFill.setShadowLayer(dp(5), 0f, 0f, Color.argb(180, 91, 245, 218));
-
-        impactRing.setStyle(Paint.Style.STROKE);
-        impactRing.setStrokeWidth(dp(1.4f));
-        impactRing.setColor(Color.argb(170, 91, 245, 218));
-
-        ghostFill.setStyle(Paint.Style.FILL);
-        ghostFill.setColor(Color.argb(43, 91, 245, 218));
         ghostFill.setShadowLayer(dp(9), 0f, 0f, Color.argb(105, 91, 245, 218));
-
-        ghostRing.setStyle(Paint.Style.STROKE);
-        ghostRing.setStrokeWidth(dp(1.7f));
-        ghostRing.setColor(Color.argb(220, 155, 255, 236));
         ghostRing.setPathEffect(new DashPathEffect(new float[]{dp(6), dp(3)}, 0f));
-
-        ghostCore.setStyle(Paint.Style.FILL);
-        ghostCore.setColor(Color.argb(215, 230, 255, 251));
     }
 
     void startVision(Window window) {
         if (window == null) return;
         visionWindow = window;
+        NativeAimBridge.ensureStarted();
         if (visionRunning) return;
         visionRunning = true;
         mainHandler.removeCallbacks(captureLoop);
@@ -126,6 +96,7 @@ final class TrajectoryOverlayView extends View {
 
     void observeTouch(MotionEvent event) {
         if (event == null) return;
+        NativeAimBridge.ensureStarted();
         int action = event.getActionMasked();
         if (action == MotionEvent.ACTION_DOWN) {
             clearGeneration++;
@@ -160,30 +131,44 @@ final class TrajectoryOverlayView extends View {
         super.onDraw(canvas);
         if (!active || getWidth() <= 0 || getHeight() <= 0) return;
 
-        float aimX = startX - currentX;
-        float aimY = startY - currentY;
-        float drag = (float) Math.hypot(aimX, aimY);
+        float touchAimX = startX - currentX;
+        float touchAimY = startY - currentY;
+        float drag = (float) Math.hypot(touchAimX, touchAimY);
         if (drag < dp(10)) return;
 
         BoardVision.State detected = recentVision();
-        RectF board;
-        float discRadius;
+        RectF board = detected != null && detected.board != null
+                ? new RectF(detected.board)
+                : estimateBoardRect();
+
+        NativeAimBridge.State nativeState = NativeAimBridge.read();
+        PointF nativeOrigin = mapNativeWorldToBoard(board, nativeState);
+
         float originX;
         float originY;
-
-        if (detected != null && detected.usable()) {
-            board = new RectF(detected.board);
-            discRadius = detected.strikerRadius;
+        if (nativeOrigin != null) {
+            originX = nativeOrigin.x;
+            originY = nativeOrigin.y;
+        } else if (detected != null && detected.usable()) {
             originX = detected.striker.x;
             originY = detected.striker.y;
         } else {
-            board = estimateBoardRect();
-            discRadius = board.width() * 0.0325f;
             originX = startX;
             originY = startY;
         }
 
-        int bounces = bankPreview ? 3 : 0;
+        float aimX = touchAimX;
+        float aimY = touchAimY;
+        if (nativeState != null && nativeState.angleFresh()) {
+            PointF direction = nativeDirection(nativeState.angle, touchAimX, touchAimY);
+            aimX = direction.x;
+            aimY = direction.y;
+        }
+
+        float discRadius = detected != null && detected.usable()
+                ? detected.strikerRadius
+                : board.width() * 0.0325f;
+
         ShotPredictor.Prediction prediction = predictor.predict(
                 board,
                 discRadius,
@@ -192,13 +177,12 @@ final class TrajectoryOverlayView extends View {
                 aimX,
                 aimY,
                 drag,
-                bounces
+                bankPreview ? 3 : 0
         );
         if (prediction.segments.isEmpty()) return;
 
         ShotPredictor.Segment first = prediction.segments.get(0);
         canvas.drawCircle(first.from.x, first.from.y, dp(3.1f), startDot);
-
         for (int i = 0; i < prediction.segments.size(); i++) {
             ShotPredictor.Segment segment = prediction.segments.get(i);
             drawSegment(canvas, segment, i);
@@ -206,7 +190,6 @@ final class TrajectoryOverlayView extends View {
                 drawImpact(canvas, segment.to.x, segment.to.y, i);
             }
         }
-
         if (prediction.complete) {
             drawGhostStop(canvas, prediction.stop.x, prediction.stop.y, prediction.discRadiusPx);
         } else {
@@ -214,11 +197,65 @@ final class TrajectoryOverlayView extends View {
         }
     }
 
+    /**
+     * Carrom 19.3.0 stores the physics position as MCPoint. The game also contains
+     * convertPointToInches:/convertInchesToPoint:, so the first native calibration
+     * accepts the two plausible units used by this engine: meters or inches.
+     */
+    private PointF mapNativeWorldToBoard(RectF board, NativeAimBridge.State state) {
+        if (state == null || !state.positionFresh()) return null;
+        double x = state.worldX;
+        double y = state.worldY;
+        double max = Math.max(Math.abs(x), Math.abs(y));
+
+        double halfExtent;
+        if (max <= 0.60) {
+            halfExtent = 0.37;
+        } else if (max <= 17.5) {
+            halfExtent = 14.57;
+        } else if (max <= 45.0) {
+            halfExtent = 37.0;
+        } else {
+            return null;
+        }
+
+        float sx = (float) (board.centerX() + (x / halfExtent) * board.width() * 0.5);
+        float sy = (float) (board.centerY() - (y / halfExtent) * board.height() * 0.5);
+        float pad = board.width() * 0.08f;
+        if (sx < board.left - pad || sx > board.right + pad ||
+                sy < board.top - pad || sy > board.bottom + pad) {
+            return null;
+        }
+        return new PointF(sx, sy);
+    }
+
+    private PointF nativeDirection(double angle, float touchX, float touchY) {
+        float touchLen = (float) Math.hypot(touchX, touchY);
+        if (touchLen < 0.001f || !Double.isFinite(angle)) return new PointF(touchX, touchY);
+        float tx = touchX / touchLen;
+        float ty = touchY / touchLen;
+        float c = (float) Math.cos(angle);
+        float s = (float) Math.sin(angle);
+        float[][] candidates = {
+                {c, s}, {c, -s}, {-c, s}, {-c, -s},
+                {s, c}, {s, -c}, {-s, c}, {-s, -c}
+        };
+        float bestDot = -Float.MAX_VALUE;
+        float bestX = tx;
+        float bestY = ty;
+        for (float[] candidate : candidates) {
+            float dot = candidate[0] * tx + candidate[1] * ty;
+            if (dot > bestDot) {
+                bestDot = dot;
+                bestX = candidate[0];
+                bestY = candidate[1];
+            }
+        }
+        return new PointF(bestX, bestY);
+    }
+
     private void captureFrame() {
         if (!visionRunning || captureInFlight || visionWindow == null) return;
-
-        // Do not capture our own guide while a shot is being aimed. The most recent
-        // idle frame is what we want for board/striker registration anyway.
         if (active) {
             mainHandler.postDelayed(captureLoop, FRAME_INTERVAL_MS);
             return;
@@ -243,18 +280,12 @@ final class TrajectoryOverlayView extends View {
         captureInFlight = true;
         try {
             PixelCopy.request(visionWindow, bitmap, result -> {
-                if (!visionRunning) {
+                if (!visionRunning || result != PixelCopy.SUCCESS) {
                     captureInFlight = false;
                     bitmap.recycle();
+                    if (visionRunning) mainHandler.postDelayed(captureLoop, FRAME_INTERVAL_MS);
                     return;
                 }
-                if (result != PixelCopy.SUCCESS) {
-                    captureInFlight = false;
-                    bitmap.recycle();
-                    mainHandler.postDelayed(captureLoop, FRAME_INTERVAL_MS);
-                    return;
-                }
-
                 try {
                     visionWorker.execute(() -> {
                         BoardVision.State state = null;
@@ -265,20 +296,11 @@ final class TrajectoryOverlayView extends View {
                         } finally {
                             bitmap.recycle();
                         }
-
                         BoardVision.State finalState = state;
                         mainHandler.post(() -> {
                             captureInFlight = false;
                             if (!visionRunning) return;
-                            if (finalState != null) {
-                                visionState = finalState;
-                                if (finalState.usable()) {
-                                    Log.d(TAG, "vision READY striker="
-                                            + Math.round(finalState.striker.x) + ","
-                                            + Math.round(finalState.striker.y)
-                                            + " confidence=" + finalState.confidence);
-                                }
-                            }
+                            if (finalState != null) visionState = finalState;
                             mainHandler.postDelayed(captureLoop, FRAME_INTERVAL_MS);
                         });
                     });
@@ -306,16 +328,13 @@ final class TrajectoryOverlayView extends View {
         int fade = Math.max(95, 255 - index * 46);
         glow.setAlpha(Math.max(18, 55 - index * 9));
         rail.setAlpha(Math.max(28, 92 - index * 13));
-
         canvas.drawLine(segment.from.x, segment.from.y, segment.to.x, segment.to.y, glow);
         canvas.drawLine(segment.from.x, segment.from.y, segment.to.x, segment.to.y, rail);
-
-        int fromColor = withAlpha(index == 0 ? ICE : CYAN, fade);
-        int toColor = withAlpha(index == 0 ? CYAN : BLUE, Math.max(80, fade - 35));
         core.setShader(new LinearGradient(
                 segment.from.x, segment.from.y,
                 segment.to.x, segment.to.y,
-                fromColor, toColor,
+                withAlpha(index == 0 ? ICE : CYAN, fade),
+                withAlpha(index == 0 ? CYAN : BLUE, Math.max(80, fade - 35)),
                 Shader.TileMode.CLAMP
         ));
         canvas.drawLine(segment.from.x, segment.from.y, segment.to.x, segment.to.y, core);
@@ -356,13 +375,27 @@ final class TrajectoryOverlayView extends View {
         return new RectF(margin, margin, w - margin, h - margin);
     }
 
+    private Paint stroke(int color, float widthDp) {
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setStyle(Paint.Style.STROKE);
+        paint.setStrokeWidth(dp(widthDp));
+        return setColor(paint, color);
+    }
+
+    private Paint fill(int color) {
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        paint.setStyle(Paint.Style.FILL);
+        return setColor(paint, color);
+    }
+
+    private Paint setColor(Paint paint, int color) {
+        paint.setColor(color);
+        return paint;
+    }
+
     private int withAlpha(int color, int alpha) {
-        return Color.argb(
-                Math.max(0, Math.min(255, alpha)),
-                Color.red(color),
-                Color.green(color),
-                Color.blue(color)
-        );
+        return Color.argb(Math.max(0, Math.min(255, alpha)),
+                Color.red(color), Color.green(color), Color.blue(color));
     }
 
     private float dp(float value) {

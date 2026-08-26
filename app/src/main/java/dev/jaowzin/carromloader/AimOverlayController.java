@@ -15,7 +15,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 final class AimOverlayController implements Application.ActivityLifecycleCallbacks {
     private static final String TAG = "carrom_loader_aim_overlay";
     private static final AtomicBoolean INSTALLED = new AtomicBoolean(false);
-
     private final boolean bankPreview;
 
     private AimOverlayController(boolean bankPreview) {
@@ -24,12 +23,14 @@ final class AimOverlayController implements Application.ActivityLifecycleCallbac
 
     static void install(Application targetApplication, boolean linesEnabled, boolean bankPreview) {
         if (targetApplication == null || !linesEnabled) return;
+        NativeAimBridge.ensureStarted();
         if (!INSTALLED.compareAndSet(false, true)) return;
         targetApplication.registerActivityLifecycleCallbacks(new AimOverlayController(bankPreview));
     }
 
     @Override
     public void onActivityResumed(Activity activity) {
+        NativeAimBridge.ensureStarted();
         attach(activity);
     }
 
@@ -42,9 +43,7 @@ final class AimOverlayController implements Application.ActivityLifecycleCallbac
 
         TrajectoryOverlayView overlay = null;
         View existing = group.findViewWithTag(TAG);
-        if (existing instanceof TrajectoryOverlayView) {
-            overlay = (TrajectoryOverlayView) existing;
-        }
+        if (existing instanceof TrajectoryOverlayView) overlay = (TrajectoryOverlayView) existing;
         if (overlay == null) {
             overlay = new TrajectoryOverlayView(activity, bankPreview);
             overlay.setTag(TAG);
@@ -95,9 +94,7 @@ final class AimOverlayController implements Application.ActivityLifecycleCallbac
             this.overlay = overlay;
         }
 
-        Window.Callback wrapped() {
-            return original;
-        }
+        Window.Callback wrapped() { return original; }
 
         @Override
         public boolean dispatchTouchEvent(MotionEvent event) {
