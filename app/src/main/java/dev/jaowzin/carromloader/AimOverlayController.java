@@ -53,6 +53,7 @@ final class AimOverlayController implements Application.ActivityLifecycleCallbac
                     ViewGroup.LayoutParams.MATCH_PARENT
             ));
         }
+        overlay.startVision(window);
 
         Window.Callback callback = window.getCallback();
         if (!(callback instanceof TouchObserverCallback)) {
@@ -71,7 +72,10 @@ final class AimOverlayController implements Application.ActivityLifecycleCallbac
         View decor = window.getDecorView();
         if (decor instanceof ViewGroup) {
             View overlay = ((ViewGroup) decor).findViewWithTag(TAG);
-            if (overlay != null) ((ViewGroup) decor).removeView(overlay);
+            if (overlay instanceof TrajectoryOverlayView) {
+                ((TrajectoryOverlayView) overlay).stopVision();
+                ((ViewGroup) decor).removeView(overlay);
+            }
         }
     }
 
