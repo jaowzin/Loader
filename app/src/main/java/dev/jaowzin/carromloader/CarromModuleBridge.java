@@ -13,12 +13,11 @@ import android.util.Log;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import dev.jaowzin.carromloader.runtime.CarromRuntimeCore;
-
 public final class CarromModuleBridge {
     private static final String TAG = "CarromModuleBridge";
-    private static final AtomicReference<String> LAST = new AtomicReference<>("waiting for virtual Carrom");
-    private static final AtomicReference<String> BASE = new AtomicReference<>("waiting for virtual Carrom");
+    private static final String WAITING = "waiting for virtual Carrom";
+    private static final AtomicReference<String> LAST = new AtomicReference<>(WAITING);
+    private static final AtomicReference<String> BASE = new AtomicReference<>(WAITING);
     private static final AtomicBoolean MONITORING = new AtomicBoolean(false);
     private static final AtomicBoolean FEATURE_RECEIVER_REGISTERED = new AtomicBoolean(false);
     private static final Handler HANDLER = new Handler(Looper.getMainLooper());
@@ -61,9 +60,8 @@ public final class CarromModuleBridge {
     }
 
     public static String status() {
-        Context context = safeRuntimeContext();
-        String ipc = ModuleStatusIpc.latest(context);
-        if (ipc != null && !ipc.trim().isEmpty()) return ipc;
+        String remote = RuntimeStatusChannel.read();
+        if (remote != null && !remote.trim().isEmpty()) return remote;
         return LAST.get();
     }
 
@@ -122,16 +120,6 @@ public final class CarromModuleBridge {
 
     private static void writeStatus(String value) {
         if (value == null || value.trim().isEmpty()) return;
-        // Direct Unix-domain socket IPC. This avoids both virtual filesystem
-        // redirection and the runtime's guest component/Broadcast routing.
-        ModuleStatusIpc.publish(value);
-    }
-
-    private static Context safeRuntimeContext() {
-        try {
-            return CarromRuntimeCore.getContext();
-        } catch (Throwable ignored) {
-            return statusContext;
-        }
+        RuntimeStatusChannel.publish(value);
     }
 }
