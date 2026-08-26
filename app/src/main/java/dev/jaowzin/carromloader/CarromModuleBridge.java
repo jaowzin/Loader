@@ -2,7 +2,6 @@ package dev.jaowzin.carromloader;
 
 import android.app.Application;
 import android.content.BroadcastReceiver;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
@@ -63,8 +62,8 @@ public final class CarromModuleBridge {
 
     public static String status() {
         Context context = safeRuntimeContext();
-        String persisted = ModuleStatusStore.read(context);
-        if (persisted != null && !persisted.trim().isEmpty()) return persisted;
+        String ipc = ModuleStatusIpc.latest(context);
+        if (ipc != null && !ipc.trim().isEmpty()) return ipc;
         return LAST.get();
     }
 
@@ -122,30 +121,17 @@ public final class CarromModuleBridge {
     }
 
     private static void writeStatus(String value) {
-        Context context = statusContext;
-        if (context == null) context = safeRuntimeContext();
-        if (context == null || value == null) return;
-
-        // Explicit component routes this to the Loader's main process, avoiding
-        // virtual filesystem redirection in the Carrom process.
-        try {
-            Intent intent = new Intent(ModuleStatusReceiver.ACTION);
-            intent.setComponent(new ComponentName(
-                    context.getPackageName(),
-                    ModuleStatusReceiver.class.getName()
-            ));
-            intent.putExtra(ModuleStatusReceiver.EXTRA_VALUE, value);
-            context.sendBroadcast(intent);
-        } catch (Throwable error) {
-            Log.w(TAG, "status broadcast failed", error);
-        }
+        if (value == null || value.trim().isEmpty()) return;
+        // Direct Unix-domain socket IPC. This avoids both virtual filesystem
+        // redirection and the runtime's guest component/Broadcast routing.
+        ModuleStatusIpc.publish(value);
     }
 
     private static Context safeRuntimeContext() {
         try {
             return CarromRuntimeCore.getContext();
         } catch (Throwable ignored) {
-            return null;
+            return statusContext;
         }
     }
 }
