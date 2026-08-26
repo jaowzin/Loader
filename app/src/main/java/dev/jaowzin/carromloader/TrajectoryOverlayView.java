@@ -4,11 +4,9 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.DashPathEffect;
-import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.PointF;
 import android.graphics.RectF;
-import android.graphics.Shader;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
@@ -16,24 +14,23 @@ import android.view.Window;
 /**
  * Native-only aim renderer.
  *
- * This view intentionally fails closed: if the Carrom native bridge has not
- * produced a fresh striker position and angle, nothing is drawn. There is no
- * screenshot/vision fallback and no touch-position fallback.
+ * The guide is rendered as a pair of parallel rails around the predicted disc path,
+ * similar to the extended-guideline style used by carrom/pool trainers. Native state
+ * remains the source of truth; stale samples fail closed and are not painted.
  */
 final class TrajectoryOverlayView extends View {
-    private static final int CYAN = Color.rgb(91, 245, 218);
-    private static final int ICE = Color.rgb(218, 255, 249);
-    private static final int BLUE = Color.rgb(75, 214, 255);
+    private static final int CYAN = Color.rgb(35, 244, 235);
+    private static final int ICE = Color.rgb(235, 255, 254);
 
-    private final Paint glow = stroke(Color.argb(42, 91, 245, 218), 6.4f);
-    private final Paint rail = stroke(Color.argb(78, 255, 255, 255), 3.2f);
-    private final Paint core = stroke(CYAN, 1.8f);
-    private final Paint startDot = fill(Color.WHITE);
-    private final Paint impactFill = fill(Color.argb(215, 218, 255, 249));
-    private final Paint impactRing = stroke(Color.argb(155, 91, 245, 218), 1.2f);
-    private final Paint ghostFill = fill(Color.argb(34, 91, 245, 218));
-    private final Paint ghostRing = stroke(Color.argb(205, 155, 255, 236), 1.5f);
-    private final Paint ghostCore = fill(Color.argb(205, 230, 255, 251));
+    private final Paint halo = stroke(Color.argb(55, 35, 244, 235), 6.5f);
+    private final Paint edge = stroke(Color.argb(235, 35, 244, 235), 2.0f);
+    private final Paint centerAxis = stroke(Color.argb(180, 245, 255, 255), 1.25f);
+    private final Paint strikerRing = stroke(Color.argb(205, 35, 244, 235), 2.0f);
+    private final Paint strikerCore = fill(Color.argb(220, 245, 255, 255));
+    private final Paint impactFill = fill(Color.argb(225, 235, 255, 254));
+    private final Paint impactRing = stroke(Color.argb(205, 35, 244, 235), 1.7f);
+    private final Paint ghostFill = fill(Color.argb(28, 35, 244, 235));
+    private final Paint ghostRing = stroke(Color.argb(220, 35, 244, 235), 1.8f);
     private final ShotPredictor predictor = new ShotPredictor();
     private final boolean bankPreview;
 
@@ -52,17 +49,17 @@ final class TrajectoryOverlayView extends View {
         setWillNotDraw(false);
         setLayerType(LAYER_TYPE_SOFTWARE, null);
 
-        glow.setStrokeCap(Paint.Cap.ROUND);
-        glow.setStrokeJoin(Paint.Join.ROUND);
-        glow.setShadowLayer(dp(5), 0f, 0f, Color.argb(90, 91, 245, 218));
-        rail.setStrokeCap(Paint.Cap.ROUND);
-        rail.setStrokeJoin(Paint.Join.ROUND);
-        core.setStrokeCap(Paint.Cap.ROUND);
-        core.setStrokeJoin(Paint.Join.ROUND);
-        startDot.setShadowLayer(dp(4), 0f, 0f, Color.argb(155, 91, 245, 218));
-        impactFill.setShadowLayer(dp(4), 0f, 0f, Color.argb(145, 91, 245, 218));
-        ghostFill.setShadowLayer(dp(7), 0f, 0f, Color.argb(75, 91, 245, 218));
-        ghostRing.setPathEffect(new DashPathEffect(new float[]{dp(5), dp(3)}, 0f));
+        halo.setStrokeCap(Paint.Cap.ROUND);
+        halo.setStrokeJoin(Paint.Join.ROUND);
+        halo.setShadowLayer(dp(4.5f), 0f, 0f, Color.argb(105, 35, 244, 235));
+        edge.setStrokeCap(Paint.Cap.ROUND);
+        edge.setStrokeJoin(Paint.Join.ROUND);
+        centerAxis.setStrokeCap(Paint.Cap.ROUND);
+        centerAxis.setPathEffect(new DashPathEffect(new float[]{dp(8), dp(5)}, 0f));
+        strikerRing.setShadowLayer(dp(5), 0f, 0f, Color.argb(110, 35, 244, 235));
+        impactFill.setShadowLayer(dp(4), 0f, 0f, Color.argb(145, 35, 244, 235));
+        ghostFill.setShadowLayer(dp(7), 0f, 0f, Color.argb(80, 35, 244, 235));
+        ghostRing.setPathEffect(new DashPathEffect(new float[]{dp(6), dp(3)}, 0f));
     }
 
     void startVision(Window ignoredWindow) {
@@ -118,20 +115,32 @@ final class TrajectoryOverlayView extends View {
                 || !nativeState.hooked()
                 || !nativeState.positionFresh()
                 || !nativeState.angleFresh()) {
+            // Keep repainting while aiming so an old guide disappears as soon as a
+            // native sample becomes stale instead of visually sticking on screen.
+            postInvalidateOnAnimation();
             return;
         }
 
         float touchAimX = startX - currentX;
         float touchAimY = startY - currentY;
         float drag = (float) Math.hypot(touchAimX, touchAimY);
-        if (drag < dp(10)) return;
+        if (drag < dp(10)) {
+            postInvalidateOnAnimation();
+            return;
+        }
 
         RectF board = estimateBoardRect();
         PointF origin = mapNativeWorldToBoard(board, nativeState);
-        if (origin == null) return;
+        if (origin == null) {
+            postInvalidateOnAnimation();
+            return;
+        }
 
         PointF direction = nativeDirection(nativeState.angle, touchAimX, touchAimY);
-        if (!Float.isFinite(direction.x) || !Float.isFinite(direction.y)) return;
+        if (!Float.isFinite(direction.x) || !Float.isFinite(direction.y)) {
+            postInvalidateOnAnimation();
+            return;
+        }
 
         float discRadius = board.width() * 0.0325f;
         ShotPredictor.Prediction prediction = predictor.predict(
@@ -144,22 +153,29 @@ final class TrajectoryOverlayView extends View {
                 drag,
                 bankPreview ? 3 : 0
         );
-        if (prediction.segments.isEmpty()) return;
+        if (prediction.segments.isEmpty()) {
+            postInvalidateOnAnimation();
+            return;
+        }
 
-        ShotPredictor.Segment first = prediction.segments.get(0);
-        canvas.drawCircle(first.from.x, first.from.y, dp(2.6f), startDot);
+        drawStrikerMarker(canvas, origin.x, origin.y, prediction.discRadiusPx);
         for (int i = 0; i < prediction.segments.size(); i++) {
             ShotPredictor.Segment segment = prediction.segments.get(i);
-            drawSegment(canvas, segment, i);
+            drawRailSegment(canvas, segment, prediction.discRadiusPx, i);
             if (segment.cushionHit && i < prediction.segments.size() - 1) {
                 drawImpact(canvas, segment.to.x, segment.to.y, i);
             }
         }
+
         if (prediction.complete) {
             drawGhostStop(canvas, prediction.stop.x, prediction.stop.y, prediction.discRadiusPx);
         } else {
             drawCutoff(canvas, prediction.stop.x, prediction.stop.y);
         }
+
+        // Native aim callbacks can continue changing even when the finger is nearly
+        // stationary. Redraw every frame while the gesture is active.
+        postInvalidateOnAnimation();
     }
 
     private PointF mapNativeWorldToBoard(RectF board, NativeAimBridge.State state) {
@@ -188,71 +204,93 @@ final class TrajectoryOverlayView extends View {
         return new PointF(sx, sy);
     }
 
+    /**
+     * Carrom's world angle is x-right/y-up. Android's canvas is x-right/y-down,
+     * therefore screen direction is (cos(angle), -sin(angle)). The old renderer
+     * also tried swapped sin/cos candidates; that could rotate a valid native angle
+     * by 90 degrees and produced the horizontal cyan line seen in testing.
+     */
     private PointF nativeDirection(double angle, float touchX, float touchY) {
+        if (!Double.isFinite(angle)) return new PointF(Float.NaN, Float.NaN);
+
+        float dx = (float) Math.cos(angle);
+        float dy = (float) -Math.sin(angle);
+        float len = (float) Math.hypot(dx, dy);
+        if (len < 0.001f) return new PointF(Float.NaN, Float.NaN);
+        dx /= len;
+        dy /= len;
+
+        // The native angle describes an axis in some aim states. Use the drag only
+        // to choose the forward half of that same axis; never swap x/y components.
         float touchLen = (float) Math.hypot(touchX, touchY);
-        if (touchLen < 0.001f || !Double.isFinite(angle)) {
-            return new PointF(Float.NaN, Float.NaN);
-        }
-
-        float tx = touchX / touchLen;
-        float ty = touchY / touchLen;
-        float c = (float) Math.cos(angle);
-        float s = (float) Math.sin(angle);
-        float[][] candidates = {
-                {c, s}, {c, -s}, {-c, s}, {-c, -s},
-                {s, c}, {s, -c}, {-s, c}, {-s, -c}
-        };
-
-        float bestDot = -Float.MAX_VALUE;
-        float bestX = Float.NaN;
-        float bestY = Float.NaN;
-        for (float[] candidate : candidates) {
-            float dot = candidate[0] * tx + candidate[1] * ty;
-            if (dot > bestDot) {
-                bestDot = dot;
-                bestX = candidate[0];
-                bestY = candidate[1];
+        if (touchLen >= 0.001f) {
+            float tx = touchX / touchLen;
+            float ty = touchY / touchLen;
+            if (dx * tx + dy * ty < 0f) {
+                dx = -dx;
+                dy = -dy;
             }
         }
-        return new PointF(bestX, bestY);
+        return new PointF(dx, dy);
     }
 
-    private void drawSegment(Canvas canvas, ShotPredictor.Segment segment, int index) {
-        int fade = Math.max(85, 240 - index * 44);
-        glow.setAlpha(Math.max(14, 42 - index * 8));
-        rail.setAlpha(Math.max(22, 78 - index * 12));
-        canvas.drawLine(segment.from.x, segment.from.y, segment.to.x, segment.to.y, glow);
-        canvas.drawLine(segment.from.x, segment.from.y, segment.to.x, segment.to.y, rail);
-        core.setShader(new LinearGradient(
-                segment.from.x,
-                segment.from.y,
-                segment.to.x,
-                segment.to.y,
-                withAlpha(index == 0 ? ICE : CYAN, fade),
-                withAlpha(index == 0 ? CYAN : BLUE, Math.max(70, fade - 35)),
-                Shader.TileMode.CLAMP
-        ));
-        canvas.drawLine(segment.from.x, segment.from.y, segment.to.x, segment.to.y, core);
-        core.setShader(null);
+    private void drawStrikerMarker(Canvas canvas, float x, float y, float radius) {
+        canvas.drawCircle(x, y, radius * 0.93f, ghostFill);
+        canvas.drawCircle(x, y, radius * 0.93f, strikerRing);
+        canvas.drawCircle(x, y, dp(2.2f), strikerCore);
+    }
+
+    private void drawRailSegment(Canvas canvas, ShotPredictor.Segment segment,
+                                 float discRadius, int index) {
+        float vx = segment.to.x - segment.from.x;
+        float vy = segment.to.y - segment.from.y;
+        float length = (float) Math.hypot(vx, vy);
+        if (length < 0.5f) return;
+
+        float nx = -vy / length;
+        float ny = vx / length;
+        float halfWidth = Math.max(dp(6f), discRadius * (index == 0 ? 0.82f : 0.62f));
+        float fade = Math.max(0.42f, 1f - index * 0.17f);
+
+        float ax1 = segment.from.x + nx * halfWidth;
+        float ay1 = segment.from.y + ny * halfWidth;
+        float ax2 = segment.to.x + nx * halfWidth;
+        float ay2 = segment.to.y + ny * halfWidth;
+        float bx1 = segment.from.x - nx * halfWidth;
+        float by1 = segment.from.y - ny * halfWidth;
+        float bx2 = segment.to.x - nx * halfWidth;
+        float by2 = segment.to.y - ny * halfWidth;
+
+        halo.setAlpha(Math.round(55f * fade));
+        edge.setAlpha(Math.round(235f * fade));
+        centerAxis.setAlpha(Math.round(170f * fade));
+
+        // Wide glow first, then the two crisp rails and a subtle center axis.
+        canvas.drawLine(ax1, ay1, ax2, ay2, halo);
+        canvas.drawLine(bx1, by1, bx2, by2, halo);
+        canvas.drawLine(ax1, ay1, ax2, ay2, edge);
+        canvas.drawLine(bx1, by1, bx2, by2, edge);
+        canvas.drawLine(segment.from.x, segment.from.y,
+                segment.to.x, segment.to.y, centerAxis);
     }
 
     private void drawImpact(Canvas canvas, float x, float y, int index) {
-        impactFill.setAlpha(Math.max(115, 210 - index * 35));
-        impactRing.setAlpha(Math.max(85, 160 - index * 25));
+        impactFill.setAlpha(Math.max(115, 220 - index * 35));
+        impactRing.setAlpha(Math.max(90, 205 - index * 28));
         canvas.drawCircle(x, y, dp(2.2f), impactFill);
-        canvas.drawCircle(x, y, dp(5.2f), impactRing);
+        canvas.drawCircle(x, y, dp(5.4f), impactRing);
     }
 
     private void drawGhostStop(Canvas canvas, float x, float y, float radius) {
         canvas.drawCircle(x, y, radius, ghostFill);
         canvas.drawCircle(x, y, radius, ghostRing);
-        canvas.drawCircle(x, y, Math.max(dp(2f), radius * 0.15f), ghostCore);
+        canvas.drawCircle(x, y, Math.max(dp(2f), radius * 0.13f), impactFill);
     }
 
     private void drawCutoff(Canvas canvas, float x, float y) {
-        impactRing.setAlpha(130);
+        impactRing.setAlpha(155);
         canvas.drawCircle(x, y, dp(5.7f), impactRing);
-        impactFill.setAlpha(160);
+        impactFill.setAlpha(190);
         canvas.drawCircle(x, y, dp(1.9f), impactFill);
     }
 
@@ -285,15 +323,6 @@ final class TrajectoryOverlayView extends View {
         paint.setStyle(Paint.Style.FILL);
         paint.setColor(color);
         return paint;
-    }
-
-    private int withAlpha(int color, int alpha) {
-        return Color.argb(
-                Math.max(0, Math.min(255, alpha)),
-                Color.red(color),
-                Color.green(color),
-                Color.blue(color)
-        );
     }
 
     private float dp(float value) {
