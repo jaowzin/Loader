@@ -1,7 +1,12 @@
 package dev.jaowzin.carromloader;
 
 import android.app.Application;
+import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -16,6 +21,7 @@ public final class CarromModuleBridge {
     private static final AtomicReference<String> LAST = new AtomicReference<>("waiting for virtual Carrom");
     private static final AtomicReference<String> BASE = new AtomicReference<>("waiting for virtual Carrom");
     private static final AtomicBoolean MONITORING = new AtomicBoolean(false);
+    private static final AtomicBoolean FEATURE_RECEIVER_REGISTERED = new AtomicBoolean(false);
     private static final Handler HANDLER = new Handler(Looper.getMainLooper());
 
     private static volatile Context statusContext;
@@ -37,6 +43,7 @@ public final class CarromModuleBridge {
     ) {
         Context context = hostContext == null ? null : hostContext.getApplicationContext();
         statusContext = context != null ? context : hostContext;
+        registerFeatureReceiver(statusContext);
 
         boolean lines = FeatureSettings.linesEnabled(hostContext);
         boolean bank = FeatureSettings.bankPreviewEnabled(hostContext);
@@ -59,6 +66,37 @@ public final class CarromModuleBridge {
         String persisted = ModuleStatusStore.read(context);
         if (persisted != null && !persisted.trim().isEmpty()) return persisted;
         return LAST.get();
+    }
+
+    private static void registerFeatureReceiver(Context context) {
+        if (context == null || !FEATURE_RECEIVER_REGISTERED.compareAndSet(false, true)) return;
+        BroadcastReceiver receiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context ignored, Intent intent) {
+                if (intent == null || !FeatureSettings.ACTION_FEATURES_CHANGED.equals(intent.getAction())) return;
+                boolean lines = intent.getBooleanExtra(FeatureSettings.EXTRA_LINES, false);
+                boolean bank = intent.getBooleanExtra(FeatureSettings.EXTRA_BANK, false);
+                AimOverlayController.updateFeatures(lines, bank);
+                String current = BASE.get();
+                int marker = current.indexOf("\nlines=");
+                if (marker >= 0) current = current.substring(0, marker);
+                BASE.set(current
+                        + "\nlines=" + (lines ? "ON" : "OFF")
+                        + "\nbankPreview=" + (bank ? "ON" : "OFF"));
+                publishNativeStatus();
+            }
+        };
+        IntentFilter filter = new IntentFilter(FeatureSettings.ACTION_FEATURES_CHANGED);
+        try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                context.registerReceiver(receiver, filter);
+            }
+        } catch (Throwable error) {
+            FEATURE_RECEIVER_REGISTERED.set(false);
+            Log.w(TAG, "feature receiver registration failed", error);
+        }
     }
 
     private static void startNativeMonitor() {
@@ -86,7 +124,21 @@ public final class CarromModuleBridge {
     private static void writeStatus(String value) {
         Context context = statusContext;
         if (context == null) context = safeRuntimeContext();
-        ModuleStatusStore.write(context, value);
+        if (context == null || value == null) return;
+
+        // Explicit component routes this to the Loader's main process, avoiding
+        // virtual filesystem redirection in the Carrom process.
+        try {
+            Intent intent = new Intent(ModuleStatusReceiver.ACTION);
+            intent.setComponent(new ComponentName(
+                    context.getPackageName(),
+                    ModuleStatusReceiver.class.getName()
+            ));
+            intent.putExtra(ModuleStatusReceiver.EXTRA_VALUE, value);
+            context.sendBroadcast(intent);
+        } catch (Throwable error) {
+            Log.w(TAG, "status broadcast failed", error);
+        }
     }
 
     private static Context safeRuntimeContext() {
