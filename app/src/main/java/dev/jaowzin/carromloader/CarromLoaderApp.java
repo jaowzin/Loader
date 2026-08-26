@@ -2,11 +2,9 @@ package dev.jaowzin.carromloader;
 
 import android.app.Application;
 import android.content.Context;
-import android.os.Build;
 import android.util.Log;
 
 import java.io.File;
-import java.io.FileInputStream;
 
 import dev.jaowzin.carromloader.runtime.CarromRuntimeCore;
 import dev.jaowzin.carromloader.runtime.app.configuration.AppLifecycleCallback;
@@ -113,41 +111,10 @@ public final class CarromLoaderApp extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
-
-        // Only the Loader's real main process owns the status socket. Proxy/guest
-        // processes publish to it but never attempt to bind the same endpoint.
-        String processName = currentProcessName();
-        if (getPackageName().equals(processName)) {
-            ModuleStatusIpc.startHost(this);
-            Log.i(TAG, "status IPC host started in " + processName);
-        }
-
         try {
             CarromRuntimeCore.get().doCreate();
         } catch (Throwable error) {
             Log.e(TAG, "CarromRuntimeCore.doCreate failed", error);
         }
-    }
-
-    private String currentProcessName() {
-        if (Build.VERSION.SDK_INT >= 28) {
-            try {
-                String value = Application.getProcessName();
-                if (value != null && !value.trim().isEmpty()) return value;
-            } catch (Throwable ignored) {
-            }
-        }
-
-        try (FileInputStream input = new FileInputStream("/proc/self/cmdline")) {
-            byte[] buffer = new byte[256];
-            int count = input.read(buffer);
-            if (count > 0) {
-                int end = 0;
-                while (end < count && buffer[end] != 0) end++;
-                return new String(buffer, 0, end, java.nio.charset.StandardCharsets.UTF_8).trim();
-            }
-        } catch (Throwable ignored) {
-        }
-        return "";
     }
 }
