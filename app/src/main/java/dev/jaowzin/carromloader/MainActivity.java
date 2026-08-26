@@ -4,6 +4,8 @@ import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -40,11 +42,22 @@ public final class MainActivity extends AppCompatActivity {
     private static final int WARNING = Color.rgb(255, 198, 92);
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private final Handler statusHandler = new Handler(Looper.getMainLooper());
+    private boolean statusPolling;
 
     private TextView runtimeBadge;
     private TextView runtimeDetail;
     private TextView console;
     private MaterialButton primaryAction;
+
+    private final Runnable statusTicker = new Runnable() {
+        @Override
+        public void run() {
+            if (!statusPolling) return;
+            refreshStatus();
+            statusHandler.postDelayed(this, 650L);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -57,13 +70,31 @@ public final class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        refreshStatus();
+        startStatusPolling();
+    }
+
+    @Override
+    protected void onPause() {
+        stopStatusPolling();
+        super.onPause();
     }
 
     @Override
     protected void onDestroy() {
+        stopStatusPolling();
         super.onDestroy();
         worker.shutdownNow();
+    }
+
+    private void startStatusPolling() {
+        statusPolling = true;
+        statusHandler.removeCallbacks(statusTicker);
+        statusHandler.post(statusTicker);
+    }
+
+    private void stopStatusPolling() {
+        statusPolling = false;
+        statusHandler.removeCallbacks(statusTicker);
     }
 
     private void configureWindow() {
@@ -92,22 +123,23 @@ public final class MainActivity extends AppCompatActivity {
         root.addView(sectionTitle("ASSIST MODULES", "Configure what loads with virtual Carrom."));
         root.addView(featureCard(
                 "Aim Lines",
-                "Live touch-vector guide rendered inside the Carrom window.",
+                "Native game-state trajectory guide. No visual fallback.",
                 FeatureSettings.linesEnabled(this),
                 true,
                 checked -> {
                     FeatureSettings.setLinesEnabled(this, checked);
-                    toast("Relaunch Carrom to apply Aim Lines");
+                    if (!checked) FeatureSettings.setBankPreviewEnabled(this, false);
+                    toast(checked ? "Aim Lines enabled" : "Aim Lines disabled");
                 }
         ));
         root.addView(featureCard(
                 "Bank Preview",
-                "Adds two reflected guide segments after a rail collision.",
-                FeatureSettings.bankPreviewEnabled(this),
-                true,
+                "Adds reflected guide segments after a rail collision. Requires Aim Lines.",
+                FeatureSettings.linesEnabled(this) && FeatureSettings.bankPreviewEnabled(this),
+                FeatureSettings.linesEnabled(this),
                 checked -> {
                     FeatureSettings.setBankPreviewEnabled(this, checked);
-                    toast("Relaunch Carrom to apply Bank Preview");
+                    toast("Bank Preview updated");
                 }
         ));
         root.addView(featureCard(
@@ -121,7 +153,7 @@ public final class MainActivity extends AppCompatActivity {
         root.addView(sectionTitle("RUNTIME", "Manage the isolated Carrom instance."));
         root.addView(buildRuntimeActions());
 
-        root.addView(sectionTitle("CONSOLE", "Latest runtime and module checkpoint."));
+        root.addView(sectionTitle("CONSOLE", "Live status from the virtual Carrom process."));
         root.addView(buildConsole());
 
         TextView footer = text("Carrom Loader • Runtime v2", 12f, MUTED, false);
@@ -316,7 +348,6 @@ public final class MainActivity extends AppCompatActivity {
 
                 boolean launched = core.launchApk(TARGET, USER_ID);
                 runOnUiThread(() -> {
-                    setConsole("launchApk=" + launched + "\n\n" + CarromModuleBridge.status());
                     primaryAction.setEnabled(true);
                     refreshStatus();
                     if (!launched) toast("Virtual launch returned false");
@@ -325,7 +356,6 @@ public final class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> {
                     setConsole("LAUNCH ERROR\n" + error);
                     primaryAction.setEnabled(true);
-                    refreshStatus();
                 });
             }
         });
@@ -384,8 +414,10 @@ public final class MainActivity extends AppCompatActivity {
         if (primaryAction != null && primaryAction.isEnabled()) {
             primaryAction.setText(virtualInstalled ? "OPEN CARROM" : "SET UP & OPEN CARROM");
         }
-        if (console != null && console.getText().toString().trim().isEmpty()) {
-            console.setText(CarromModuleBridge.status());
+        if (console != null) {
+            String status = CarromModuleBridge.status();
+            if (status == null || status.trim().isEmpty()) status = "waiting for virtual Carrom";
+            console.setText(status);
         }
     }
 
