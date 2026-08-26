@@ -45,7 +45,7 @@ public final class MainActivity extends Activity {
         root.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("NewBlackbox dual-app engine • Carrom CTF host");
+        subtitle.setText("Carrom Runtime • dual-app engine");
         subtitle.setTextSize(14f);
         subtitle.setPadding(0, dp(4), 0, dp(18));
         root.addView(subtitle);
@@ -55,13 +55,13 @@ public final class MainActivity extends Activity {
         status.setPadding(dp(12), dp(12), dp(12), dp(12));
         root.addView(status, matchWrap());
 
-        root.addView(button("1. Clone Carrom into dual-app engine", v -> installVirtual()));
+        root.addView(button("1. Clone Carrom into runtime", v -> installVirtual()));
         root.addView(button("2. Launch virtual Carrom", v -> launchVirtual()));
         root.addView(button("3. Remove virtual Carrom", v -> uninstallVirtual()));
-        root.addView(button("Refresh engine status", v -> refreshStatus()));
+        root.addView(button("Refresh runtime status", v -> refreshStatus()));
 
         TextView logTitle = new TextView(this);
-        logTitle.setText("Engine / Carrom module status");
+        logTitle.setText("Runtime / Carrom module status");
         logTitle.setTypeface(Typeface.DEFAULT_BOLD);
         logTitle.setPadding(0, dp(20), 0, dp(6));
         root.addView(logTitle);
@@ -74,8 +74,8 @@ public final class MainActivity extends Activity {
         root.addView(log, matchWrap());
 
         TextView info = new TextView(this);
-        info.setText("This build uses the ready-made NewBlackbox/Bcore virtualization engine. "
-                + "Our Carrom-specific code is kept in a separate bridge so line/trajectory modules can be added after the game launches reliably inside the virtual process.");
+        info.setText("Carrom Runtime hosts the virtualized game process. "
+                + "Carrom-specific trajectory and line modules are kept separately so they can evolve without changing the app container.");
         info.setTextSize(13f);
         info.setPadding(0, dp(18), 0, 0);
         root.addView(info);
@@ -95,7 +95,7 @@ public final class MainActivity extends Activity {
             toast("Carrom Pool is not installed on this device");
             return;
         }
-        setLog("Cloning installed Carrom into NewBlackbox user 0…");
+        setLog("Cloning installed Carrom into runtime user 0…");
         worker.execute(() -> {
             try {
                 InstallResult result = BlackBoxCore.get().installPackageAsUser(TARGET, USER_ID);
@@ -113,7 +113,7 @@ public final class MainActivity extends Activity {
     }
 
     private void launchVirtual() {
-        setLog("Launching Carrom through NewBlackbox…");
+        setLog("Launching Carrom through Carrom Runtime…");
         worker.execute(() -> {
             try {
                 boolean launched = BlackBoxCore.get().launchApk(TARGET, USER_ID);
@@ -151,10 +151,10 @@ public final class MainActivity extends Activity {
         } catch (Throwable ignored) {
         }
         if (status != null) {
-            status.setText("Engine: NewBlackbox/Bcore @ 89b59836"
-                    + "\nEngine services: " + (services ? "READY" : "STARTING/NOT READY")
+            status.setText("Engine: Carrom Runtime"
+                    + "\nRuntime services: " + (services ? "READY" : "STARTING/NOT READY")
                     + "\nCarrom installed on device: " + (hostInstalled ? "YES" : "NO")
-                    + "\nCarrom cloned in engine: " + (virtualInstalled ? "YES" : "NO")
+                    + "\nCarrom cloned in runtime: " + (virtualInstalled ? "YES" : "NO")
                     + "\nVirtual user: " + USER_ID);
         }
         if (log != null) {
