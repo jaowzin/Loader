@@ -34,10 +34,7 @@ std::atomic<int> gPlayer{-1};
 std::atomic<int64_t> gPositionNs{0};
 std::atomic<int64_t> gAngleNs{0};
 std::atomic<uintptr_t> gModuleBase{0};
-std::atomic<bool> gCallbackRegistered{false};
 std::atomic<bool> gInstalling{false};
-
-int installHooks();
 
 int64_t monotonicNs() {
     timespec ts{};
@@ -93,29 +90,11 @@ bool selectorMatches(uintptr_t base, uintptr_t rva, const char *expected) {
     return value && std::strcmp(value, expected) == 0;
 }
 
-void onImageLoaded(const char *imageName, void *) {
-    if (!isCarromImage(imageName)) return;
-    __android_log_print(ANDROID_LOG_INFO, kTag, "Carrom native image loaded: %s", imageName);
-    gStatus.store(1, std::memory_order_release);
-    installHooks();
-}
-
-void ensureImageCallbackRegistered() {
-#if defined(__aarch64__)
-    bool expected = false;
-    if (gCallbackRegistered.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-        dobby_register_image_load_callback(onImageLoaded);
-        __android_log_print(ANDROID_LOG_INFO, kTag, "registered native image load callback");
-    }
-#endif
-}
-
 int installHooks() {
 #if !defined(__aarch64__)
     gStatus.store(-1, std::memory_order_release);
     return -1;
 #else
-    ensureImageCallbackRegistered();
     if (gStatus.load(std::memory_order_acquire) == 2) return 2;
 
     bool expected = false;
