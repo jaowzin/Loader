@@ -12,31 +12,46 @@ final class NativeAimBridge {
         final double worldX;
         final double worldY;
         final double angle;
+        final double power;
         final int playerId;
         final double positionAgeMs;
         final double angleAgeMs;
+        final double powerAgeMs;
 
-        State(int status, double worldX, double worldY, double angle,
-              int playerId, double positionAgeMs, double angleAgeMs) {
+        State(int status, double worldX, double worldY, double angle, double power,
+              int playerId, double positionAgeMs, double angleAgeMs, double powerAgeMs) {
             this.status = status;
             this.worldX = worldX;
             this.worldY = worldY;
             this.angle = angle;
+            this.power = power;
             this.playerId = playerId;
             this.positionAgeMs = positionAgeMs;
             this.angleAgeMs = angleAgeMs;
+            this.powerAgeMs = powerAgeMs;
         }
 
-        boolean hooked() { return status == 2; }
-
-        boolean positionFresh() {
-            return hooked() && Double.isFinite(worldX) && Double.isFinite(worldY)
-                    && positionAgeMs >= 0.0 && positionAgeMs < 1200.0;
+        boolean hooked() {
+            return status == 2;
         }
 
-        boolean angleFresh() {
-            return hooked() && Double.isFinite(angle)
-                    && angleAgeMs >= 0.0 && angleAgeMs < 900.0;
+        boolean positionUsable() {
+            return hooked()
+                    && Double.isFinite(worldX)
+                    && Double.isFinite(worldY)
+                    && positionAgeMs >= 0.0;
+        }
+
+        boolean angleUsable() {
+            return hooked() && Double.isFinite(angle) && angleAgeMs >= 0.0;
+        }
+
+        boolean powerUsable() {
+            return hooked()
+                    && Double.isFinite(power)
+                    && power >= 0.0
+                    && power <= 1.0
+                    && powerAgeMs >= 0.0;
         }
     }
 
@@ -53,18 +68,27 @@ final class NativeAimBridge {
     }
 
     static State read() {
-        if (!ensureLibrary()) return new State(-10, Double.NaN, Double.NaN, Double.NaN, -1, -1, -1);
+        if (!ensureLibrary()) return empty(-10);
         try {
             nativeStart();
             double[] values = nativeSnapshot();
-            if (values == null || values.length < 7) {
-                return new State(-11, Double.NaN, Double.NaN, Double.NaN, -1, -1, -1);
+            if (values == null || values.length < 9) {
+                return empty(-11);
             }
-            return new State((int) values[0], values[1], values[2], values[3],
-                    (int) values[4], values[5], values[6]);
+            return new State(
+                    (int) values[0],
+                    values[1],
+                    values[2],
+                    values[3],
+                    values[4],
+                    (int) values[5],
+                    values[6],
+                    values[7],
+                    values[8]
+            );
         } catch (Throwable error) {
             Log.w(TAG, "nativeSnapshot failed", error);
-            return new State(-12, Double.NaN, Double.NaN, Double.NaN, -1, -1, -1);
+            return empty(-12);
         }
     }
 
@@ -81,11 +105,29 @@ final class NativeAimBridge {
             default: status = "ERROR(" + state.status + ")"; break;
         }
         if (!state.hooked()) return "nativeAim=" + status;
+
+        long aimAge = Math.round(Math.max(state.angleAgeMs, state.powerAgeMs));
         return "nativeAim=" + status
                 + " world=(" + fmt(state.worldX) + "," + fmt(state.worldY) + ")"
                 + " angle=" + fmt(state.angle)
+                + " power=" + fmt(state.power)
                 + " player=" + state.playerId
-                + " age=" + Math.round(Math.max(state.positionAgeMs, state.angleAgeMs)) + "ms";
+                + " agePos=" + Math.round(state.positionAgeMs) + "ms"
+                + " ageAim=" + aimAge + "ms";
+    }
+
+    private static State empty(int status) {
+        return new State(
+                status,
+                Double.NaN,
+                Double.NaN,
+                Double.NaN,
+                Double.NaN,
+                -1,
+                -1,
+                -1,
+                -1
+        );
     }
 
     private static synchronized boolean ensureLibrary() {
