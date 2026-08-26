@@ -13,6 +13,12 @@ MODULES = {
 }
 
 REPLACEMENTS = [
+    # Gradle module links must be renamed explicitly; the module directory rename
+    # alone does not update project(':...') dependency declarations.
+    ('project(":compiler")', 'project(":runtime-codegen")'),
+    ("project(':compiler')", "project(':runtime-codegen')"),
+    ('project(":black-reflection")', 'project(":runtime-bridge")'),
+    ("project(':black-reflection')", "project(':runtime-bridge')"),
     ("top.niunaijun.blackreflection", "dev.jaowzin.carromloader.bridge"),
     ("top/niunaijun/blackreflection", "dev/jaowzin/carromloader/bridge"),
     ("top_niunaijun_blackreflection", "dev_jaowzin_carromloader_bridge"),
