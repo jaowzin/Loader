@@ -11,8 +11,8 @@ import java.util.List;
  * Small clean-room 2D predictor used by the visual guide.
  *
  * Coordinates are pixels, while the speed/friction model is evaluated in meters so
- * that predictions stay reasonably similar across screen sizes. Constants are only
- * the current CTF calibration and can be tuned from captured shots later.
+ * predictions stay reasonably similar across screen sizes. Shot power is supplied as
+ * the game's normalized 0..1 value captured from ControlsLogicLocal.
  */
 final class ShotPredictor {
     private static final float BOARD_WIDTH_METERS = 0.74f;
@@ -57,7 +57,7 @@ final class ShotPredictor {
     Prediction predict(RectF board, float discRadiusPx,
                        float startX, float startY,
                        float directionX, float directionY,
-                       float dragDistancePx, int visibleBounces) {
+                       float normalizedPower, int visibleBounces) {
         ArrayList<Segment> segments = new ArrayList<>();
         if (board == null || board.width() < 1f || board.height() < 1f) {
             return new Prediction(segments, new PointF(startX, startY), discRadiusPx, 0f, 0f, false);
@@ -82,9 +82,14 @@ final class ShotPredictor {
 
         float x = clamp(startX, playable.left, playable.right);
         float y = clamp(startY, playable.top, playable.bottom);
-        float power = clamp(dragDistancePx / (board.width() * 0.42f), 0f, 1f);
-        // Low drag still needs enough speed to make the guide useful; the curve makes
-        // the top end less jumpy while preserving fine control at low power.
+        float power = clamp(normalizedPower, 0f, 1f);
+        if (power <= 0.005f) {
+            return new Prediction(segments, new PointF(x, y), discRadiusPx, power, 0f, true);
+        }
+
+        // Temporary local calibration of native 0..1 power to physical speed. The
+        // important change here is that line length now follows the game's own power
+        // state rather than Android touch distance.
         float initialSpeed = 0.45f + 3.45f * (float) Math.pow(power, 0.78f);
         float speed = initialSpeed;
         float metersPerPixel = BOARD_WIDTH_METERS / board.width();
@@ -139,8 +144,6 @@ final class ShotPredictor {
             float impactSpeed = (float) Math.sqrt(impactSquared);
 
             if (bounces >= bounceLimit) {
-                // The guide intentionally stops here when bank preview is disabled or
-                // when the requested preview depth has been reached.
                 complete = false;
                 break;
             }
@@ -153,8 +156,6 @@ final class ShotPredictor {
             speed = impactSpeed * CUSHION_RESTITUTION;
             bounces++;
 
-            // Move a fraction of a pixel inward so the next ray cannot immediately
-            // collide with the same cushion because of floating point rounding.
             x = clamp(endX + dx * 0.35f, playable.left, playable.right);
             y = clamp(endY + dy * 0.35f, playable.top, playable.bottom);
         }
