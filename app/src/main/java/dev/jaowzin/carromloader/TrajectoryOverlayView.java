@@ -3,14 +3,29 @@ package dev.jaowzin.carromloader;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.DashPathEffect;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
+import android.graphics.RectF;
+import android.graphics.Shader;
 import android.view.MotionEvent;
 import android.view.View;
 
 final class TrajectoryOverlayView extends View {
+    private static final int CYAN = Color.rgb(91, 245, 218);
+    private static final int ICE = Color.rgb(218, 255, 249);
+    private static final int BLUE = Color.rgb(75, 214, 255);
+
     private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint point = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint rail = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint core = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint startDot = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint impactFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint impactRing = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint ghostFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint ghostRing = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint ghostCore = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final ShotPredictor predictor = new ShotPredictor();
     private final boolean bankPreview;
 
     private float startX;
@@ -28,20 +43,47 @@ final class TrajectoryOverlayView extends View {
         setWillNotDraw(false);
         setLayerType(LAYER_TYPE_SOFTWARE, null);
 
-        glow.setColor(Color.argb(95, 91, 245, 201));
-        glow.setStrokeWidth(dp(8));
-        glow.setStrokeCap(Paint.Cap.ROUND);
         glow.setStyle(Paint.Style.STROKE);
-        glow.setShadowLayer(dp(8), 0, 0, Color.argb(150, 91, 245, 201));
+        glow.setStrokeCap(Paint.Cap.ROUND);
+        glow.setStrokeJoin(Paint.Join.ROUND);
+        glow.setStrokeWidth(dp(8.5f));
+        glow.setColor(Color.argb(52, 91, 245, 218));
+        glow.setShadowLayer(dp(7), 0f, 0f, Color.argb(115, 91, 245, 218));
 
-        line.setColor(Color.rgb(133, 255, 219));
-        line.setStrokeWidth(dp(2.2f));
-        line.setStrokeCap(Paint.Cap.ROUND);
-        line.setStyle(Paint.Style.STROKE);
+        rail.setStyle(Paint.Style.STROKE);
+        rail.setStrokeCap(Paint.Cap.ROUND);
+        rail.setStrokeJoin(Paint.Join.ROUND);
+        rail.setStrokeWidth(dp(4.2f));
+        rail.setColor(Color.argb(90, 255, 255, 255));
 
-        point.setColor(Color.WHITE);
-        point.setStyle(Paint.Style.FILL);
-        point.setShadowLayer(dp(5), 0, 0, Color.argb(200, 91, 245, 201));
+        core.setStyle(Paint.Style.STROKE);
+        core.setStrokeCap(Paint.Cap.ROUND);
+        core.setStrokeJoin(Paint.Join.ROUND);
+        core.setStrokeWidth(dp(2.15f));
+
+        startDot.setStyle(Paint.Style.FILL);
+        startDot.setColor(Color.WHITE);
+        startDot.setShadowLayer(dp(5), 0f, 0f, Color.argb(190, 91, 245, 218));
+
+        impactFill.setStyle(Paint.Style.FILL);
+        impactFill.setColor(Color.argb(225, 218, 255, 249));
+        impactFill.setShadowLayer(dp(5), 0f, 0f, Color.argb(180, 91, 245, 218));
+
+        impactRing.setStyle(Paint.Style.STROKE);
+        impactRing.setStrokeWidth(dp(1.4f));
+        impactRing.setColor(Color.argb(170, 91, 245, 218));
+
+        ghostFill.setStyle(Paint.Style.FILL);
+        ghostFill.setColor(Color.argb(43, 91, 245, 218));
+        ghostFill.setShadowLayer(dp(9), 0f, 0f, Color.argb(105, 91, 245, 218));
+
+        ghostRing.setStyle(Paint.Style.STROKE);
+        ghostRing.setStrokeWidth(dp(1.7f));
+        ghostRing.setColor(Color.argb(220, 155, 255, 236));
+        ghostRing.setPathEffect(new DashPathEffect(new float[]{dp(6), dp(3)}, 0f));
+
+        ghostCore.setStyle(Paint.Style.FILL);
+        ghostCore.setColor(Color.argb(215, 230, 255, 251));
     }
 
     void observeTouch(MotionEvent event) {
@@ -71,7 +113,7 @@ final class TrajectoryOverlayView extends View {
                     active = false;
                     invalidate();
                 }
-            }, 650L);
+            }, 1100L);
         }
     }
 
@@ -80,54 +122,112 @@ final class TrajectoryOverlayView extends View {
         super.onDraw(canvas);
         if (!active || getWidth() <= 0 || getHeight() <= 0) return;
 
-        float dx = startX - currentX;
-        float dy = startY - currentY;
-        float length = (float) Math.hypot(dx, dy);
-        if (length < dp(12)) return;
-        dx /= length;
-        dy /= length;
+        float aimX = startX - currentX;
+        float aimY = startY - currentY;
+        float drag = (float) Math.hypot(aimX, aimY);
+        if (drag < dp(10)) return;
 
-        float margin = dp(18);
-        float minX = margin;
-        float minY = margin;
-        float maxX = getWidth() - margin;
-        float maxY = getHeight() - margin;
-        float x = clamp(startX, minX, maxX);
-        float y = clamp(startY, minY, maxY);
+        RectF board = estimateBoardRect();
+        float discRadius = board.width() * 0.0325f;
+        int bounces = bankPreview ? 3 : 0;
+        ShotPredictor.Prediction prediction = predictor.predict(
+                board,
+                discRadius,
+                startX,
+                startY,
+                aimX,
+                aimY,
+                drag,
+                bounces
+        );
+        if (prediction.segments.isEmpty()) return;
 
-        canvas.drawCircle(x, y, dp(4), point);
+        ShotPredictor.Segment first = prediction.segments.get(0);
+        canvas.drawCircle(first.from.x, first.from.y, dp(3.1f), startDot);
 
-        int reflections = bankPreview ? 2 : 0;
-        for (int segment = 0; segment <= reflections; segment++) {
-            float tx = Float.POSITIVE_INFINITY;
-            float ty = Float.POSITIVE_INFINITY;
+        for (int i = 0; i < prediction.segments.size(); i++) {
+            ShotPredictor.Segment segment = prediction.segments.get(i);
+            drawSegment(canvas, segment, i);
+            if (segment.cushionHit && i < prediction.segments.size() - 1) {
+                drawImpact(canvas, segment.to.x, segment.to.y, i);
+            }
+        }
 
-            if (dx > 0.0001f) tx = (maxX - x) / dx;
-            else if (dx < -0.0001f) tx = (minX - x) / dx;
-
-            if (dy > 0.0001f) ty = (maxY - y) / dy;
-            else if (dy < -0.0001f) ty = (minY - y) / dy;
-
-            float t = Math.min(tx, ty);
-            if (!Float.isFinite(t) || t <= 0f) break;
-
-            float endX = x + dx * t;
-            float endY = y + dy * t;
-            canvas.drawLine(x, y, endX, endY, glow);
-            canvas.drawLine(x, y, endX, endY, line);
-
-            boolean hitX = Math.abs(tx - t) < 0.5f;
-            boolean hitY = Math.abs(ty - t) < 0.5f;
-            if (hitX) dx = -dx;
-            if (hitY) dy = -dy;
-
-            x = clamp(endX, minX, maxX);
-            y = clamp(endY, minY, maxY);
+        if (prediction.complete) {
+            drawGhostStop(canvas, prediction.stop.x, prediction.stop.y, prediction.discRadiusPx);
+        } else {
+            // Bank preview depth ended at a cushion. A small ring communicates that the
+            // visible guide was intentionally truncated rather than claiming a false stop.
+            drawCutoff(canvas, prediction.stop.x, prediction.stop.y);
         }
     }
 
-    private float clamp(float value, float min, float max) {
-        return Math.max(min, Math.min(max, value));
+    private void drawSegment(Canvas canvas, ShotPredictor.Segment segment, int index) {
+        int fade = Math.max(95, 255 - index * 46);
+        glow.setAlpha(Math.max(18, 55 - index * 9));
+        rail.setAlpha(Math.max(28, 92 - index * 13));
+
+        canvas.drawLine(segment.from.x, segment.from.y, segment.to.x, segment.to.y, glow);
+        canvas.drawLine(segment.from.x, segment.from.y, segment.to.x, segment.to.y, rail);
+
+        int fromColor = withAlpha(index == 0 ? ICE : CYAN, fade);
+        int toColor = withAlpha(index == 0 ? CYAN : BLUE, Math.max(80, fade - 35));
+        core.setShader(new LinearGradient(
+                segment.from.x, segment.from.y,
+                segment.to.x, segment.to.y,
+                fromColor, toColor,
+                Shader.TileMode.CLAMP
+        ));
+        canvas.drawLine(segment.from.x, segment.from.y, segment.to.x, segment.to.y, core);
+        core.setShader(null);
+    }
+
+    private void drawImpact(Canvas canvas, float x, float y, int index) {
+        impactFill.setAlpha(Math.max(125, 225 - index * 35));
+        impactRing.setAlpha(Math.max(95, 180 - index * 25));
+        canvas.drawCircle(x, y, dp(2.6f), impactFill);
+        canvas.drawCircle(x, y, dp(6.3f), impactRing);
+    }
+
+    private void drawGhostStop(Canvas canvas, float x, float y, float radius) {
+        canvas.drawCircle(x, y, radius, ghostFill);
+        canvas.drawCircle(x, y, radius, ghostRing);
+        canvas.drawCircle(x, y, Math.max(dp(2.2f), radius * 0.17f), ghostCore);
+    }
+
+    private void drawCutoff(Canvas canvas, float x, float y) {
+        impactRing.setAlpha(150);
+        canvas.drawCircle(x, y, dp(7f), impactRing);
+        impactFill.setAlpha(180);
+        canvas.drawCircle(x, y, dp(2.1f), impactFill);
+    }
+
+    /**
+     * The CTF layout uses a portrait board occupying almost the full screen width.
+     * Keeping this estimation isolated makes it easy to replace with detected board
+     * corners once the frame sampler is connected.
+     */
+    private RectF estimateBoardRect() {
+        float w = getWidth();
+        float h = getHeight();
+        if (h > w * 1.28f) {
+            float side = w * 0.955f;
+            float left = (w - side) * 0.5f;
+            float top = h * 0.245f;
+            if (top + side > h - dp(20)) top = Math.max(dp(20), h - side - dp(20));
+            return new RectF(left, top, left + side, top + side);
+        }
+        float margin = Math.max(dp(16), Math.min(w, h) * 0.035f);
+        return new RectF(margin, margin, w - margin, h - margin);
+    }
+
+    private int withAlpha(int color, int alpha) {
+        return Color.argb(
+                Math.max(0, Math.min(255, alpha)),
+                Color.red(color),
+                Color.green(color),
+                Color.blue(color)
+        );
     }
 
     private float dp(float value) {
