@@ -1,6 +1,7 @@
 package dev.jaowzin.carromloader;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.DashPathEffect;
@@ -8,13 +9,24 @@ import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Shader;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.Log;
 import android.view.MotionEvent;
+import android.view.PixelCopy;
 import android.view.View;
+import android.view.Window;
+
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 final class TrajectoryOverlayView extends View {
+    private static final String TAG = "carrom_line_vision";
     private static final int CYAN = Color.rgb(91, 245, 218);
     private static final int ICE = Color.rgb(218, 255, 249);
     private static final int BLUE = Color.rgb(75, 214, 255);
+    private static final long FRAME_INTERVAL_MS = 520L;
+    private static final long VISION_MAX_AGE_MS = 3500L;
 
     private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint rail = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -27,6 +39,13 @@ final class TrajectoryOverlayView extends View {
     private final Paint ghostCore = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final ShotPredictor predictor = new ShotPredictor();
     private final boolean bankPreview;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final ExecutorService visionWorker = Executors.newSingleThreadExecutor();
+
+    private Window visionWindow;
+    private BoardVision.State visionState;
+    private boolean visionRunning;
+    private boolean captureInFlight;
 
     private float startX;
     private float startY;
@@ -34,6 +53,8 @@ final class TrajectoryOverlayView extends View {
     private float currentY;
     private boolean active;
     private int clearGeneration;
+
+    private final Runnable captureLoop = this::captureFrame;
 
     TrajectoryOverlayView(Context context, boolean bankPreview) {
         super(context);
@@ -86,6 +107,23 @@ final class TrajectoryOverlayView extends View {
         ghostCore.setColor(Color.argb(215, 230, 255, 251));
     }
 
+    void startVision(Window window) {
+        if (window == null) return;
+        visionWindow = window;
+        if (visionRunning) return;
+        visionRunning = true;
+        mainHandler.removeCallbacks(captureLoop);
+        mainHandler.postDelayed(captureLoop, 180L);
+    }
+
+    void stopVision() {
+        visionRunning = false;
+        captureInFlight = false;
+        visionWindow = null;
+        mainHandler.removeCallbacks(captureLoop);
+        visionWorker.shutdownNow();
+    }
+
     void observeTouch(MotionEvent event) {
         if (event == null) return;
         int action = event.getActionMasked();
@@ -127,14 +165,30 @@ final class TrajectoryOverlayView extends View {
         float drag = (float) Math.hypot(aimX, aimY);
         if (drag < dp(10)) return;
 
-        RectF board = estimateBoardRect();
-        float discRadius = board.width() * 0.0325f;
+        BoardVision.State detected = recentVision();
+        RectF board;
+        float discRadius;
+        float originX;
+        float originY;
+
+        if (detected != null && detected.usable()) {
+            board = new RectF(detected.board);
+            discRadius = detected.strikerRadius;
+            originX = detected.striker.x;
+            originY = detected.striker.y;
+        } else {
+            board = estimateBoardRect();
+            discRadius = board.width() * 0.0325f;
+            originX = startX;
+            originY = startY;
+        }
+
         int bounces = bankPreview ? 3 : 0;
         ShotPredictor.Prediction prediction = predictor.predict(
                 board,
                 discRadius,
-                startX,
-                startY,
+                originX,
+                originY,
                 aimX,
                 aimY,
                 drag,
@@ -156,10 +210,96 @@ final class TrajectoryOverlayView extends View {
         if (prediction.complete) {
             drawGhostStop(canvas, prediction.stop.x, prediction.stop.y, prediction.discRadiusPx);
         } else {
-            // Bank preview depth ended at a cushion. A small ring communicates that the
-            // visible guide was intentionally truncated rather than claiming a false stop.
             drawCutoff(canvas, prediction.stop.x, prediction.stop.y);
         }
+    }
+
+    private void captureFrame() {
+        if (!visionRunning || captureInFlight || visionWindow == null) return;
+
+        // Do not capture our own guide while a shot is being aimed. The most recent
+        // idle frame is what we want for board/striker registration anyway.
+        if (active) {
+            mainHandler.postDelayed(captureLoop, FRAME_INTERVAL_MS);
+            return;
+        }
+
+        View decor = visionWindow.getDecorView();
+        int width = decor.getWidth();
+        int height = decor.getHeight();
+        if (width < 80 || height < 80 || !decor.isAttachedToWindow()) {
+            mainHandler.postDelayed(captureLoop, FRAME_INTERVAL_MS);
+            return;
+        }
+
+        Bitmap bitmap;
+        try {
+            bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        } catch (Throwable error) {
+            mainHandler.postDelayed(captureLoop, FRAME_INTERVAL_MS * 2);
+            return;
+        }
+
+        captureInFlight = true;
+        try {
+            PixelCopy.request(visionWindow, bitmap, result -> {
+                if (!visionRunning) {
+                    captureInFlight = false;
+                    bitmap.recycle();
+                    return;
+                }
+                if (result != PixelCopy.SUCCESS) {
+                    captureInFlight = false;
+                    bitmap.recycle();
+                    mainHandler.postDelayed(captureLoop, FRAME_INTERVAL_MS);
+                    return;
+                }
+
+                try {
+                    visionWorker.execute(() -> {
+                        BoardVision.State state = null;
+                        try {
+                            state = BoardVision.analyze(bitmap);
+                        } catch (Throwable error) {
+                            Log.w(TAG, "frame analysis failed", error);
+                        } finally {
+                            bitmap.recycle();
+                        }
+
+                        BoardVision.State finalState = state;
+                        mainHandler.post(() -> {
+                            captureInFlight = false;
+                            if (!visionRunning) return;
+                            if (finalState != null) {
+                                visionState = finalState;
+                                if (finalState.usable()) {
+                                    Log.d(TAG, "vision READY striker="
+                                            + Math.round(finalState.striker.x) + ","
+                                            + Math.round(finalState.striker.y)
+                                            + " confidence=" + finalState.confidence);
+                                }
+                            }
+                            mainHandler.postDelayed(captureLoop, FRAME_INTERVAL_MS);
+                        });
+                    });
+                } catch (Throwable error) {
+                    captureInFlight = false;
+                    bitmap.recycle();
+                    mainHandler.postDelayed(captureLoop, FRAME_INTERVAL_MS);
+                }
+            }, mainHandler);
+        } catch (Throwable error) {
+            captureInFlight = false;
+            bitmap.recycle();
+            mainHandler.postDelayed(captureLoop, FRAME_INTERVAL_MS);
+        }
+    }
+
+    private BoardVision.State recentVision() {
+        BoardVision.State state = visionState;
+        if (state == null) return null;
+        if (System.currentTimeMillis() - state.capturedAtMs > VISION_MAX_AGE_MS) return null;
+        return state;
     }
 
     private void drawSegment(Canvas canvas, ShotPredictor.Segment segment, int index) {
@@ -202,11 +342,6 @@ final class TrajectoryOverlayView extends View {
         canvas.drawCircle(x, y, dp(2.1f), impactFill);
     }
 
-    /**
-     * The CTF layout uses a portrait board occupying almost the full screen width.
-     * Keeping this estimation isolated makes it easy to replace with detected board
-     * corners once the frame sampler is connected.
-     */
     private RectF estimateBoardRect() {
         float w = getWidth();
         float h = getHeight();
