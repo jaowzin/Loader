@@ -13,9 +13,8 @@ import dev.jaowzin.carromloader.runtime.core.system.location.BLocationManagerSer
 import dev.jaowzin.carromloader.runtime.core.system.notification.BNotificationManagerService;
 import dev.jaowzin.carromloader.runtime.core.system.os.BStorageManagerService;
 import dev.jaowzin.carromloader.runtime.core.system.pm.BPackageManagerService;
-
+import dev.jaowzin.carromloader.runtime.core.system.status.CarromStatusService;
 import dev.jaowzin.carromloader.runtime.core.system.user.BUserManagerService;
-
 
 public class ServiceManager {
     private static ServiceManager sServiceManager = null;
@@ -24,10 +23,10 @@ public class ServiceManager {
     public static final String PACKAGE_MANAGER = "package_manager";
     public static final String STORAGE_MANAGER = "storage_manager";
     public static final String USER_MANAGER = "user_manager";
-
     public static final String ACCOUNT_MANAGER = "account_manager";
     public static final String LOCATION_MANAGER = "location_manager";
     public static final String NOTIFICATION_MANAGER = "notification_manager";
+    public static final String CARROM_STATUS = "carrom_status";
 
     private final Map<String, IBinder> mCaches = new HashMap<>();
 
@@ -52,10 +51,10 @@ public class ServiceManager {
         mCaches.put(PACKAGE_MANAGER, BPackageManagerService.get());
         mCaches.put(STORAGE_MANAGER, BStorageManagerService.get());
         mCaches.put(USER_MANAGER, BUserManagerService.get());
-
         mCaches.put(ACCOUNT_MANAGER, BAccountManagerService.get());
         mCaches.put(LOCATION_MANAGER, BLocationManagerService.get());
         mCaches.put(NOTIFICATION_MANAGER, BNotificationManagerService.get());
+        mCaches.put(CARROM_STATUS, CarromStatusService.get());
     }
 
     public IBinder getServiceInternal(String name) {
@@ -68,9 +67,9 @@ public class ServiceManager {
         CarromRuntimeCore.get().getService(PACKAGE_MANAGER);
         CarromRuntimeCore.get().getService(STORAGE_MANAGER);
         CarromRuntimeCore.get().getService(USER_MANAGER);
-
         CarromRuntimeCore.get().getService(ACCOUNT_MANAGER);
         CarromRuntimeCore.get().getService(LOCATION_MANAGER);
         CarromRuntimeCore.get().getService(NOTIFICATION_MANAGER);
+        CarromRuntimeCore.get().getService(CARROM_STATUS);
     }
 }
