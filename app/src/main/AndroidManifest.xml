@@ -12,6 +12,10 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.CarromLoader">
 
+        <receiver
+            android:name=".ModuleStatusReceiver"
+            android:exported="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
