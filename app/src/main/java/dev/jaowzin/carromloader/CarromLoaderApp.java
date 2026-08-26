@@ -69,7 +69,6 @@ public final class CarromLoaderApp extends Application {
 
             @Override
             public String getLogSenderChatId() {
-                // Do not forward Loader/Carrom logs to third-party channels.
                 return "";
             }
         });
@@ -98,7 +97,12 @@ public final class CarromLoaderApp extends Application {
             @Override
             public void afterApplicationOnCreate(String packageName, String processName, Application application, int userId) {
                 if (TARGET.equals(packageName)) {
-                    CarromModuleBridge.onTargetApplicationReady(application, processName, userId);
+                    CarromModuleBridge.onTargetApplicationReady(
+                            application,
+                            processName,
+                            userId,
+                            CarromLoaderApp.this
+                    );
                 }
             }
         });

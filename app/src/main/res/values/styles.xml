@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.CarromLoader" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#68F5C8</item>
+        <item name="colorPrimaryVariant">#45CDA8</item>
+        <item name="colorSecondary">#68F5C8</item>
+        <item name="colorOnPrimary">#080C11</item>
+        <item name="colorSurface">#111821</item>
+        <item name="colorOnSurface">#EFF7F5</item>
+        <item name="android:windowBackground">#080C11</item>
+        <item name="android:statusBarColor">#080C11</item>
+        <item name="android:navigationBarColor">#080C11</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:fontFamily">sans</item>
+    </style>
+</resources>
