@@ -7,6 +7,7 @@ import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.PointF;
 import android.graphics.RectF;
+import android.os.SystemClock;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
@@ -14,14 +15,11 @@ import android.view.Window;
 /**
  * Native-only aim renderer.
  *
- * The guide is rendered as a pair of parallel rails around the predicted disc path,
- * similar to the extended-guideline style used by carrom/pool trainers. Native state
- * remains the source of truth; stale samples fail closed and are not painted.
+ * The guide is rendered as a pair of parallel rails around the predicted disc path.
+ * Angle and power come from the game's live ControlsLogicLocal input state. Touch data
+ * is only used to scope a gesture and disambiguate the forward half of the aim axis.
  */
 final class TrajectoryOverlayView extends View {
-    private static final int CYAN = Color.rgb(35, 244, 235);
-    private static final int ICE = Color.rgb(235, 255, 254);
-
     private final Paint halo = stroke(Color.argb(55, 35, 244, 235), 6.5f);
     private final Paint edge = stroke(Color.argb(235, 35, 244, 235), 2.0f);
     private final Paint centerAxis = stroke(Color.argb(180, 245, 255, 255), 1.25f);
@@ -40,6 +38,7 @@ final class TrajectoryOverlayView extends View {
     private float currentY;
     private boolean active;
     private int clearGeneration;
+    private long gestureStartedAtMs;
 
     TrajectoryOverlayView(Context context, boolean bankPreview) {
         super(context);
@@ -68,6 +67,7 @@ final class TrajectoryOverlayView extends View {
 
     void stopVision() {
         active = false;
+        gestureStartedAtMs = 0L;
         clearGeneration++;
         invalidate();
     }
@@ -83,6 +83,7 @@ final class TrajectoryOverlayView extends View {
             startY = event.getY();
             currentX = startX;
             currentY = startY;
+            gestureStartedAtMs = SystemClock.uptimeMillis();
             active = true;
             invalidate();
         } else if (action == MotionEvent.ACTION_MOVE) {
@@ -99,6 +100,7 @@ final class TrajectoryOverlayView extends View {
             postDelayed(() -> {
                 if (generation == clearGeneration) {
                     active = false;
+                    gestureStartedAtMs = 0L;
                     invalidate();
                 }
             }, 900L);
@@ -108,26 +110,21 @@ final class TrajectoryOverlayView extends View {
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-        if (!active || getWidth() <= 0 || getHeight() <= 0) return;
+        if (!active || gestureStartedAtMs <= 0L || getWidth() <= 0 || getHeight() <= 0) return;
 
         NativeAimBridge.State nativeState = NativeAimBridge.read();
         if (nativeState == null
                 || !nativeState.hooked()
-                || !nativeState.positionFresh()
-                || !nativeState.angleFresh()) {
-            // Keep repainting while aiming so an old guide disappears as soon as a
-            // native sample becomes stale instead of visually sticking on screen.
+                || !nativeState.positionUsable()
+                || !nativeState.angleUsable()
+                || !nativeState.powerUsable()
+                || !aimSampleBelongsToCurrentGesture(nativeState)) {
             postInvalidateOnAnimation();
             return;
         }
 
         float touchAimX = startX - currentX;
         float touchAimY = startY - currentY;
-        float drag = (float) Math.hypot(touchAimX, touchAimY);
-        if (drag < dp(10)) {
-            postInvalidateOnAnimation();
-            return;
-        }
 
         RectF board = estimateBoardRect();
         PointF origin = mapNativeWorldToBoard(board, nativeState);
@@ -150,7 +147,7 @@ final class TrajectoryOverlayView extends View {
                 origin.y,
                 direction.x,
                 direction.y,
-                drag,
+                (float) nativeState.power,
                 bankPreview ? 3 : 0
         );
         if (prediction.segments.isEmpty()) {
@@ -173,9 +170,17 @@ final class TrajectoryOverlayView extends View {
             drawCutoff(canvas, prediction.stop.x, prediction.stop.y);
         }
 
-        // Native aim callbacks can continue changing even when the finger is nearly
-        // stationary. Redraw every frame while the gesture is active.
         postInvalidateOnAnimation();
+    }
+
+    private boolean aimSampleBelongsToCurrentGesture(NativeAimBridge.State state) {
+        double gestureAgeMs = Math.max(0L, SystemClock.uptimeMillis() - gestureStartedAtMs);
+        // At ACTION_DOWN an old sample from the previous turn can still be present.
+        // A sample generated during this gesture stays roughly the same age as the
+        // gesture itself once the finger stops, so this check remains valid while held.
+        double toleranceMs = 220.0;
+        return state.angleAgeMs <= gestureAgeMs + toleranceMs
+                && state.powerAgeMs <= gestureAgeMs + toleranceMs;
     }
 
     private PointF mapNativeWorldToBoard(RectF board, NativeAimBridge.State state) {
@@ -204,12 +209,6 @@ final class TrajectoryOverlayView extends View {
         return new PointF(sx, sy);
     }
 
-    /**
-     * Carrom's world angle is x-right/y-up. Android's canvas is x-right/y-down,
-     * therefore screen direction is (cos(angle), -sin(angle)). The old renderer
-     * also tried swapped sin/cos candidates; that could rotate a valid native angle
-     * by 90 degrees and produced the horizontal cyan line seen in testing.
-     */
     private PointF nativeDirection(double angle, float touchX, float touchY) {
         if (!Double.isFinite(angle)) return new PointF(Float.NaN, Float.NaN);
 
@@ -220,8 +219,8 @@ final class TrajectoryOverlayView extends View {
         dx /= len;
         dy /= len;
 
-        // The native angle describes an axis in some aim states. Use the drag only
-        // to choose the forward half of that same axis; never swap x/y components.
+        // Touch never supplies the angle. It only chooses which half of the same
+        // native axis is the forward shot direction.
         float touchLen = (float) Math.hypot(touchX, touchY);
         if (touchLen >= 0.001f) {
             float tx = touchX / touchLen;
@@ -265,7 +264,6 @@ final class TrajectoryOverlayView extends View {
         edge.setAlpha(Math.round(235f * fade));
         centerAxis.setAlpha(Math.round(170f * fade));
 
-        // Wide glow first, then the two crisp rails and a subtle center axis.
         canvas.drawLine(ax1, ay1, ax2, ay2, halo);
         canvas.drawLine(bx1, by1, bx2, by2, halo);
         canvas.drawLine(ax1, ay1, ax2, ay2, edge);
